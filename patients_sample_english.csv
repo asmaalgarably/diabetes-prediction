@@ -1,0 +1,5 @@
+id,name,age,gender,weight,height,glucose,hypertensive,family_diabetes
+1,Ahmed,45,Male,80,170,120,Yes,Yes
+2,Sarah,32,Female,60,160,110,No,Yes
+3,Mohamed,50,Male,90,175,140,Yes,No
+4,Laila,28,Female,55,165,100,No,No

@@ -1,0 +1,12 @@
+﻿streamlit
+pandas
+numpy
+matplotlib
+scikit-learn
+easyocr
+fpdf
+arabic-reshaper
+python-bidi
+pillow
+opencv-python
+pytesseract
