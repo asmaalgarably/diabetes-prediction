@@ -8,37 +8,41 @@ from fpdf import FPDF
 import arabic_reshaper
 from bidi.algorithm import get_display
 import os
-import pytesseract
 from PIL import Image
 import re
 import cv2
 import numpy as np
+import tempfile
 
 # ------------------- Load Model, Scaler, Columns -------------------
 with open('../models/rf_diabetes_model.pkl', 'rb') as f:
     model = pickle.load(f)
+
 with open('../models/rf_scaler.pkl', 'rb') as f:
     scaler = pickle.load(f)
+
 with open('../models/rf_columns.pkl', 'rb') as f:
     model_columns = pickle.load(f)
 
 # ------------------- Paths -------------------
 current_dir = os.path.dirname(__file__)
 logo_path = os.path.join(current_dir, "..", "image", "logo.png")
+logo_path1 = os.path.join(current_dir, "..", "image", "logo1.png")
 font_path = os.path.join(current_dir, "Fonts", "DejaVuSans.ttf")
 
-# ------------------- Initialize session_state -------------------
+# ------------------- Session State -------------------
 if "saved_advice" not in st.session_state:
     st.session_state.saved_advice = ""
 
-# ------------------- PDF Generation Functions -------------------
+# ------------------- PDF Functions -------------------
 
 
-def add_arabic(pdf, text, cell_width=180, font_size=12):
-    pdf.set_font("DejaVu", "", font_size)
+def add_arabic(pdf, text, font_size=12, bold=False):
+    style = "B" if bold else ""
+    pdf.set_font("DejaVu", style, font_size)
     reshaped_text = arabic_reshaper.reshape(text)
     bidi_text = get_display(reshaped_text)
-    pdf.multi_cell(cell_width, 8, bidi_text, align='R')
+    pdf.multi_cell(0, 8, bidi_text, align='R')
     pdf.ln(2)
 
 
@@ -46,101 +50,177 @@ def generate_pdf(patient_info):
     pdf = FPDF()
     pdf.add_page()
 
-    # Arabic line
-    if not os.path.exists(font_path):
-        raise FileNotFoundError(f"TTF Font file not found: {font_path}")
+    # ------------------ Borders------------------
+    pdf.set_line_width(0.5)
+    pdf.rect(5, 5, 200, 287)  
+
+    # ------------------add lines ------------------
     pdf.add_font("DejaVu", "", font_path, uni=True)
+    pdf.add_font("DejaVu", "B", font_path, uni=True)
+
     pdf.set_font("DejaVu", "", 12)
 
-    # Logo
+    # ------------------ Logo------------------
     if os.path.exists(logo_path):
-        pdf.image(logo_path, x=10, y=8, w=30)
-        pdf.ln(25)
+        logo_width = 70
+        page_width = pdf.w - 2 * pdf.l_margin
+        x_center = (page_width - logo_width) / 2 + pdf.l_margin
+        pdf.image(logo_path1, x=x_center, y=10, w=logo_width)
+        pdf.ln(35)
 
-    # Patient Report
-    add_arabic(pdf, "تقرير المريض | Patient Report", font_size=16)
+    # ------------------ Report------------------
 
-    # Patient Data
+    add_arabic(pdf, "Patient's medical report | التقرير الطبي للمريض",
+               font_size=16, bold=True)
+
+    # ------------------ Patient data ------------------
     for key, value in patient_info.items():
         add_arabic(pdf, f"{key}: {value}")
 
-    # BMI
-    plt.figure(figsize=(4, 2))
-    bmi_value = patient_info.get('BMI', 0)
-    plt.bar(['BMI'], [bmi_value], color='blue')
-    plt.axhline(y=18.5, color='green', linestyle='--', label='Underweight')
-    plt.axhline(y=24.9, color='yellow', linestyle='--', label='Normal')
-    plt.axhline(y=29.9, color='orange', linestyle='--', label='Overweight')
-    plt.axhline(y=30, color='red', linestyle='--', label='Obese')
-    plt.legend()
-    buf = BytesIO()
-    plt.savefig(buf, format='PNG')
-    plt.close()
-    buf.seek(0)
-    pdf.image(buf, x=10, y=None, w=pdf.w - 20)
-    buf.close()
-
-    pdf_buffer = BytesIO()
-    pdf.output(pdf_buffer)
-    pdf_buffer.seek(0)
+    pdf_bytes = pdf.output(dest='S')  
+    pdf_buffer = BytesIO(pdf_bytes)
     return pdf_buffer.getvalue()
 
 
-# ------------------- Streamlit Page Config -------------------
-st.set_page_config(
-    page_title="نظام تقييم خطر السكري | Diabetes Risk Assessment", layout="wide", page_icon='💉🩺 ')
-st.sidebar.title("التنقل | Navigation")
-page = st.sidebar.radio("اذهب إلى | Go to", [
-    "الرئيسية | Home",
-    "تنبؤ خطر المريض | Predict Patient Risk",
-    "تقرير المريض | Patient Report",
-    "تحميل جماعي | Batch Upload",
-    "تحليل صورة التحليل | Image Analysis"
-])
 
-# ------------------- Home Page -------------------
-if page == "الرئيسية | Home":
+# ------------------- Page Config -------------------
+st.set_page_config(
+    page_title="النظام الذكي لتقييم خطر الإصابة بالسكري | Smart Diabetes Risk Assessment",
+    layout="wide",
+    page_icon="💉"
+)
+
+st.sidebar.title("لوحة التحكم | Control Panel")
+page = st.sidebar.radio(
+    "اختر الصفحة | Select Page", [
+        "الصفحة الرئيسية | Home",
+        "تقييم خطر المريض | Patient Risk Assessment",
+        "التقرير الطبي للمريض | Medical Report",
+        "التحليل الجماعي | Batch Analysis",
+        "تحليل صورة الفحص الطبي | Medical Image Analysis"
+    ]
+)
+
+# =================== HOME PAGE ===================
+if page == "الصفحة الرئيسية | Home":
+
     if os.path.exists(logo_path):
-        st.image(logo_path, width=150)
-    else:
-        st.warning("لم يتم العثور على شعار المستشفى | Hospital logo not found")
-    st.title("💉🩺  نظام تقييم خطر السكري | Diabetes Risk Assessment System")
+        st.image(logo_path, width=350)
+
+    st.title(
+        "💉 النظام الذكي لتقييم خطر الإصابة بمرض السكري | Smart Diabetes Risk Assessment System"
+    )
+
     st.markdown("""
-    مرحباً بكم في نظام تقييم خطر السكري. | Welcome to the Diabetes Risk Assessment System.  
-    هذا النظام يتنبأ بخطر السكري بناءً على بيانات المريض ويقدم توصيات صحية.  
-    This system predicts the risk of diabetes based on patient data and provides health recommendations.
+    مرحبًا بكم في النظام الذكي لتقييم خطر الإصابة بمرض السكري.  
+    Welcome to the Smart Diabetes Risk Assessment System.
+
+    يعتمد هذا النظام على الذكاء الاصطناعي والتعلّم الآلي لتحليل البيانات الصحية وتقديم
+    تقييم دقيق لمستوى الخطورة مع توصيات طبية داعمة لاتخاذ القرار.
+
+    This system uses AI & Machine Learning to analyze patient data
+    and generate accurate risk predictions with medical recommendations.
+
+    🔹 التنبؤ بالحالة الصحية | Health Risk Prediction  
+    🔹 تقارير طبية بصيغة PDF | PDF Medical Reports  
+    🔹 تحليل جماعي | Batch Analysis  
+    🔹 تحليل صور الفحوصات | Medical Image OCR Analysis  
+
+    🔴 هذا النظام داعم للقرار الطبي ولا يغني عن استشارة الطبيب  
+    🔴 This system does not replace professional medical consultation
     """)
 
-# ------------------- Predict Patient Risk -------------------
-elif page == "تنبؤ خطر المريض | Predict Patient Risk":
-    st.header("معلومات المريض | Patient Information")
-    with st.form("patient_form"):
-        name = st.text_input("اسم المريض (اختياري) | Patient Name (Optional)")
-        age = st.number_input("العمر | Age", min_value=1,
-                              max_value=120, value=35)
-        gender = st.selectbox(
-            "الجنس | Gender", ["ذكر | Male", "أنثى | Female"])
-        weight = st.number_input(
-            "الوزن (كغ) | Weight (kg)", min_value=1, max_value=300, value=70)
-        height = st.number_input(
-            "الطول (سم) | Height (cm)", min_value=50, max_value=250, value=170)
-        glucose = st.number_input(
-            "مستوى الجلوكوز (ملغ/دل) | Glucose Level (mg/dL)", min_value=50, max_value=400, value=110)
-        hypertensive = st.selectbox("ارتفاع ضغط الدم؟ | Hypertension?", [
-                                    "لا | No", "نعم | Yes"])
-        family_diabetes = st.selectbox("سكري في العائلة؟ | Family Diabetes?", [
-                                       "لا | No", "نعم | Yes"])
-        submitted = st.form_submit_button("تحليل الخطر | Analyze Risk")
+# =================== PAGE 2: SAVE PATIENT DATA ===================
+elif page == "تقييم خطر المريض | Patient Risk Assessment":
 
-    if submitted:
-        bmi = weight / ((height/100)**2)
+    st.header("🧑‍⚕️ إدخل بيانات المريض | Enter Patient Data")
+
+    with st.form("patient_form"):
+        st.session_state.home_name = st.text_input(
+            "اسم المريض | Patient Name", st.session_state.get("home_name", "")
+        )
+        st.session_state.home_age = st.number_input(
+            "العمر | Age", 1, 120, st.session_state.get("home_age", 35)
+        )
+        st.session_state.home_gender = st.selectbox(
+            "الجنس | Gender", ["ذكر | Male", "أنثى | Female"],
+            index=0 if st.session_state.get(
+                "home_gender", "ذكر | Male") == "ذكر | Male" else 1
+        )
+        st.session_state.home_weight = st.number_input(
+            "الوزن (كغ) | Weight (kg)", 1, 300, st.session_state.get(
+                "home_weight", 70)
+        )
+        st.session_state.home_height = st.number_input(
+            "الطول (سم) | Height (cm)", 50, 250, st.session_state.get(
+                "home_height", 170)
+        )
+        st.session_state.home_glucose = st.number_input(
+            "مستوى الجلوكوز | Glucose (mg/dL)", 50, 400, st.session_state.get(
+                "home_glucose", 110)
+        )
+        st.session_state.home_hypertension = st.selectbox(
+            "ارتفاع ضغط الدم | Hypertension", ["لا | No", "نعم | Yes"],
+            index=0 if st.session_state.get(
+                "home_hypertension", "لا | No") == "لا | No" else 1
+        )
+        st.session_state.home_family_diabetes = st.selectbox(
+            "تاريخ عائلي للسكري | Family Diabetes", ["لا | No", "نعم | Yes"],
+            index=0 if st.session_state.get(
+                "home_family_diabetes", "لا | No") == "لا | No" else 1
+        )
+
+        save_btn = st.form_submit_button("💾 حفظ البيانات | Save Data")
+
+    if save_btn:
+        st.success("✅ تم حفظ البيانات! سيتم استخدامها في التقرير الطبي لاحقًا.")
+
+# =================== MEDICAL REPORT PAGE ===================
+elif page == "التقرير الطبي للمريض | Medical Report":
+
+    st.header("📄 التقرير الطبي للمريض | Patient Medical Report")
+
+    with st.form("pdf_form"):
+        name = st.text_input("اسم المريض | Patient Name",
+                             value=st.session_state.get("home_name", ""))
+        age = st.number_input("العمر | Age", 1, 120,
+                              value=st.session_state.get("home_age", 35))
+        gender = st.selectbox(
+            "الجنس | Gender", ["ذكر | Male", "أنثى | Female"],
+            index=0 if st.session_state.get(
+                "home_gender", "ذكر | Male") == "ذكر | Male" else 1
+        )
+        weight = st.number_input(
+            "الوزن (كغ) | Weight (kg)", 1, 300, value=st.session_state.get("home_weight", 70))
+        height = st.number_input("الطول (سم) | Height (cm)", 50,
+                                 250, value=st.session_state.get("home_height", 170))
+        glucose = st.number_input("مستوى الجلوكوز | Glucose (mg/dL)", 50, 400,
+                                  value=st.session_state.get("home_glucose", 110))
+        hypertensive = st.selectbox(
+            "ارتفاع ضغط الدم | Hypertension", ["لا | No", "نعم | Yes"],
+            index=0 if st.session_state.get(
+                "home_hypertension", "لا | No") == "لا | No" else 1
+        )
+        family_diabetes = st.selectbox(
+            "تاريخ عائلي للسكري | Family Diabetes", ["لا | No", "نعم | Yes"],
+            index=0 if st.session_state.get(
+                "home_family_diabetes", "لا | No") == "لا | No" else 1
+        )
+
+        save_button = st.form_submit_button(
+            "💾 حفظ وإنشاء التقرير | Save & Generate PDF")
+
+    if save_button:
+
+        bmi = round(weight / ((height / 100) ** 2), 2)
+
         new_data = pd.DataFrame({
             'age': [age],
             'gender': [gender],
             'bmi': [bmi],
             'glucose': [glucose],
-            'family_diabetes': [1 if family_diabetes.endswith('Yes') else 0],
-            'hypertensive': [1 if hypertensive.endswith('Yes') else 0]
+            'family_diabetes': [1 if family_diabetes.endswith("Yes") else 0],
+            'hypertensive': [1 if hypertensive.endswith("Yes") else 0]
         })
         new_data = pd.get_dummies(new_data, drop_first=True)
         for col in model_columns:
@@ -152,223 +232,199 @@ elif page == "تنبؤ خطر المريض | Predict Patient Risk":
         pred = model.predict(new_data_scaled)[0]
         prob = model.predict_proba(new_data_scaled)[0][1]
 
-        # Determining the level of risk and delivery
-
         if prob < 0.33:
             risk_level = "منخفض | Low"
-            advice = "مريضك في وضع جيد. حافظ على نظام غذائي صحي وممارسة الرياضة بانتظام. | Your patient is healthy. Maintain a healthy diet and regular exercise."
-            color = "green"
+            advice = """
+✅ الحالة جيدة، استمر بالمراقبة الدورية لمستوى الجلوكوز كل 6 أشهر.
+✅ حافظ على وزن صحي ومستوى BMI مناسب.
+✅ اتبع نظام غذائي متوازن غني بالخضار والفواكه والحبوب الكاملة.
+✅ مارس النشاط البدني 30 دقيقة يوميًا على الأقل.
+✅ قلل السكريات المضافة والمشروبات الغازية.
+✅ تجنب التدخين والكحول.
+"""
         elif prob < 0.66:
             risk_level = "متوسط | Medium"
-            advice = "راقب مستوى الجلوكوز بانتظام وحافظ على نظام غذائي متوازن. | Monitor glucose levels regularly and maintain a balanced diet."
-            color = "orange"
+            advice = """
+⚠️ قياس السكر في الدم بانتظام، على الأقل مرة أسبوعيًا.
+⚠️ قلل الكربوهيدرات البسيطة (الخبز الأبيض، الحلويات).
+⚠️ زد من استهلاك البروتينات الصحية والخضروات الغنية بالألياف.
+⚠️ مارس الرياضة معتدلة الشدة 4-5 مرات أسبوعيًا.
+⚠️ راقب ضغط الدم والكوليسترول بانتظام.
+⚠️ استشر أخصائي تغذية لتخطيط نظام غذائي شخصي.
+"""
         else:
             risk_level = "مرتفع | High"
-            advice = "استشر طبيبك وراقب HbA1c بانتظام. | Consult a doctor and monitor HbA1c regularly."
-            color = "red"
+            advice = """
+🚨 راجع طبيبك فورًا لإجراء فحوصات شاملة (سكر، HbA1c، ضغط الدم).
+🚨 ضع خطة علاجية مخصصة إذا تم تشخيصك بالسكري.
+🚨 قلل السكريات والكربوهيدرات المكررة بشكل صارم.
+🚨 مارس تمارين يومية معتدلة، وتجنب الخمول.
+🚨 حافظ على وزن صحي وقلل الدهون المشبعة.
+🚨 راقب الجلوكوز في الدم يوميًا إذا كنت مصابًا.
+🚨 التزم بالمواعيد الدورية للطبيب وأخصائي التغذية.
+"""
 
-        st.subheader(
-            f"التنبؤ | Predicted: {'مصاب بالسكري | Diabetic' if pred == 1 else 'غير مصاب | Not Diabetic'}")
-        st.subheader(f"الاحتمالية | Probability: {prob*100:.2f}%")
-        st.markdown(
-            f"<h3 style='color:{color}'>مستوى الخطر | Risk Level: {risk_level}</h3>", unsafe_allow_html=True)
-        st.markdown(f"**التوصيات | Recommendations:** {advice}")
-
-        #  saving session_state
-        st.session_state.saved_advice = advice
-
-        # Copy the recommendation button for the report
-        if st.button("نسخ التوصية إلى التقرير | Copy Recommendation to Report"):
-            st.success(
-                "تم نسخ التوصية بنجاح | Recommendation copied to report!")
-
-# ------------------- Patient Report Page -------------------
-elif page == "تقرير المريض | Patient Report":
-    st.header("تحميل تقرير المريض | Download Patient PDF Report")
-    st.markdown(
-        "يمكنك إنشاء وتحميل تقرير PDF لمريض هنا | You can generate and download a PDF report for a patient here.")
-
-    with st.form("pdf_form"):
-        name = st.text_input("اسم المريض | Patient Name")
-        age = st.number_input("العمر | Age", min_value=1,
-                              max_value=120, value=35)
-        gender = st.selectbox(
-            "الجنس | Gender", ["ذكر | Male", "أنثى | Female"])
-        weight = st.number_input(
-            "الوزن (كغ) | Weight (kg)", min_value=1, max_value=300, value=70)
-        height = st.number_input(
-            "الطول (سم) | Height (cm)", min_value=50, max_value=250, value=170)
-        glucose = st.number_input(
-            "مستوى الجلوكوز (ملغ/دل) | Glucose Level (mg/dL)", min_value=50, max_value=400, value=110)
-        hypertensive = st.selectbox("ارتفاع ضغط الدم؟ | Hypertension?", [
-                                    "لا | No", "نعم | Yes"])
-        family_diabetes = st.selectbox("سكري في العائلة؟ | Family Diabetes?", [
-                                       "لا | No", "نعم | Yes"])
-        predicted = st.selectbox("التنبؤ | Predicted", [
-                                 "مصاب بالسكري | Diabetic", "غير مصاب | Not Diabetic"])
-        risk_level = st.selectbox("مستوى الخطر | Risk Level", [
-                                  "منخفض | Low", "متوسط | Medium", "مرتفع | High"])
-
-        # Show recommendation only, no modifications
-        st.text_area(
-            "التوصيات | Recommendations",
-            st.session_state.saved_advice,
-            height=100,
-            disabled=True
-        )
-
-        generate = st.form_submit_button("إنشاء PDF | Generate PDF")
-
-    if generate:
-        bmi = round(weight / ((height/100)**2), 2)
-        advice = st.session_state.saved_advice or "لا توجد توصية حالياً | No recommendation available."
-
+        # إنشاء PDF
         patient_info = {
             "الاسم | Name": name,
             "العمر | Age": age,
             "الجنس | Gender": gender,
-            "الوزن | Weight (kg)": weight,
-            "الطول | Height (cm)": height,
+            "الوزن | Weight": weight,
+            "الطول | Height": height,
             "BMI": bmi,
             "مستوى الجلوكوز | Glucose": glucose,
-            "ارتفاع ضغط الدم | Hypertension": hypertensive,
-            "سكري في العائلة | Family Diabetes": family_diabetes,
-            "التنبؤ | Predicted": predicted,
-            "مستوى الخطر | Risk Level": risk_level,
-            "التوصيات | Recommendations": advice
+            "مستوى الخطورة | Risk Level": risk_level
         }
-        pdf_bytes = generate_pdf(patient_info)
-        st.success("تم إنشاء التقرير بنجاح | PDF report generated successfully")
-        st.download_button("تحميل تقرير PDF | Download PDF", data=pdf_bytes,
-                           file_name=f"{name or 'patient'}_report.pdf", mime="application/pdf")
 
-# ------------------- Batch Upload -------------------
-elif page == "تحميل جماعي | Batch Upload":
-    st.header(
-        "رفع ملف المرضى وتحليل جماعي | Upload Patients Data for Batch Analysis")
-    st.markdown("""
-    ارفع ملف CSV أو Excel يحتوي على بيانات المرضى للتحليل. | Upload a CSV or Excel file with patient data for analysis.  
-    الأعمدة المطلوبة | Required columns: `id, name (optional), age, gender, weight, height, glucose, hypertensive, family_diabetes`
-    """)
+        pdf_bytes = generate_pdf({**patient_info, "التوصيات الطبية": advice})
+
+        st.success("✅ تم إنشاء التقرير بنجاح | PDF Generated Successfully")
+        st.download_button("⬇️ تحميل التقرير | Download Report",
+                           pdf_bytes, f"{name}_Medical_Report.pdf")
+
+# =================== BATCH ANALYSIS ===================
+elif page == "التحليل الجماعي | Batch Analysis":
+
+    st.header("📊 التحليل الجماعي | Batch Analysis")
 
     uploaded_file = st.file_uploader(
-        "اختر الملف | Choose file", type=["csv", "xlsx"])
-    if uploaded_file:
-        try:
-            if uploaded_file.name.endswith(".csv"):
-                df = pd.read_csv(uploaded_file)
-            else:
-                df = pd.read_excel(uploaded_file)
-
-            st.success(
-                f"تم تحميل الملف بنجاح | File loaded successfully with {len(df)} patients")
-
-            results = []
-            risk_counts = {"مصاب بالسكري | Diabetic": 0,
-                           "غير مصاب | Not Diabetic": 0}
-            for idx, row in df.iterrows():
-                bmi = row['weight'] / ((row['height']/100)**2)
-                new_data = pd.DataFrame({
-                    'age': [row['age']],
-                    'gender': [row['gender']],
-                    'bmi': [bmi],
-                    'glucose': [row['glucose']],
-                    'family_diabetes': [1 if str(row['family_diabetes']).endswith('Yes') else 0],
-                    'hypertensive': [1 if str(row['hypertensive']).endswith('Yes') else 0]
-                })
-                new_data = pd.get_dummies(new_data, drop_first=True)
-                for col in model_columns:
-                    if col not in new_data.columns:
-                        new_data[col] = 0
-                new_data = new_data[model_columns]
-                new_data_scaled = scaler.transform(new_data)
-
-                pred = model.predict(new_data_scaled)[0]
-                status = 'مصاب بالسكري | Diabetic' if pred == 1 else 'غير مصاب | Not Diabetic'
-                results.append({
-                    "رقم المريض | Patient ID": row['id'] if 'id' in row else idx+1,
-                    "الاسم | Name": row['name'] if 'name' in row else f"Patient {idx+1}",
-                    "الحالة | Status": status
-                })
-                risk_counts[status] += 1
-
-            results_df = pd.DataFrame(results)
-            st.subheader("جدول تحليل المرضى | Patients Analysis Table")
-            st.dataframe(results_df)
-
-            # Chart
-            st.subheader("توزيع المرضى | Status Distribution")
-            fig, ax = plt.subplots()
-            ax.bar(risk_counts.keys(), risk_counts.values(),
-                   color=['red', 'green'])
-            ax.set_ylabel("عدد المرضى | Number of Patients")
-            st.pyplot(fig)
-
-            # Download CSV
-            csv_buffer = BytesIO()
-            results_df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
-            st.download_button("تحميل نتائج التحليل CSV | Download Batch Results CSV",
-                               data=csv_buffer.getvalue(), file_name="batch_results.csv", mime="text/csv")
-
-        except Exception as e:
-            st.error(
-                f"حدث خطأ أثناء معالجة الملف | Error processing file: {e}")
-            
-# ================== Image Analysis with EasyOCR ==================
-
-elif page == "تحليل صورة التحليل | Image Analysis":
-    st.header("تحليل صورة التحليل الطبي | Medical Image Analysis")
-    st.markdown(
-        "ارفع صورة التحليل الطبي وسيقوم النظام بتحليلها وتقديم تقدير للحالة الصحية والتوصية."
-    )
-
-    uploaded_file = st.file_uploader(
-        "اختر صورة التحليل", type=["png", "jpg", "jpeg"]
+        "اختر الملف | Choose File", type=["csv", "xlsx"]
     )
 
     if uploaded_file:
-        # عرض الصورة
+        df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(
+            ".csv") else pd.read_excel(uploaded_file)
+
+        st.success("✅ تم تحميل الملف بنجاح | File Uploaded Successfully")
+
+        results = []
+
+        for _, row in df.iterrows():
+            bmi = row['weight'] / ((row['height'] / 100) ** 2)
+
+            new_data = pd.DataFrame({
+                'age': [row['age']],
+                'gender': [row['gender']],
+                'bmi': [bmi],
+                'glucose': [row['glucose']],
+                'family_diabetes': [1 if str(row['family_diabetes']).endswith("Yes") else 0],
+                'hypertensive': [1 if str(row['hypertensive']).endswith("Yes") else 0]
+            })
+
+            new_data = pd.get_dummies(new_data, drop_first=True)
+
+            for col in model_columns:
+                if col not in new_data.columns:
+                    new_data[col] = 0
+
+            new_data = new_data[model_columns]
+            pred = model.predict(scaler.transform(new_data))[0]
+
+            status_table = "مصاب | Diabetic" if pred == 1 else "غير مصاب | Non-Diabetic"
+            arabic_status = arabic_reshaper.reshape(
+                "مصاب") if pred == 1 else arabic_reshaper.reshape("غير مصاب")
+            status_chart = f"{get_display(arabic_status)} | {'Diabetic' if pred == 1 else 'Non-Diabetic'}"
+
+            results.append({
+                "الاسم | Name": row['name'],
+                "الحالة | Status": status_table,
+                "status_chart": status_chart
+            })
+
+        results_df = pd.DataFrame(results)
+
+        st.subheader("📋 نتائج التحليل | Batch Results")
+        st.dataframe(results_df[["الاسم | Name", "الحالة | Status"]])
+
+        status_counts = results_df['status_chart'].value_counts()
+        st.subheader("📈 توزيع حالات المرضى | Patients Status Distribution")
+
+        fig, ax = plt.subplots(figsize=(7, 5))
+        colors = ['#e74c3c', '#2ecc71']
+        ax.bar(status_counts.index, status_counts.values, color=colors)
+
+        ax.set_xlabel(get_display(
+            arabic_reshaper.reshape("الحالة")) + " | Status")
+        ax.set_ylabel(get_display(arabic_reshaper.reshape(
+            "عدد المرضى")) + " | Number of Patients")
+        ax.set_title(get_display(arabic_reshaper.reshape(
+            "توزيع حالات السكري")) + " | Diabetes Status Distribution")
+
+        for i, v in enumerate(status_counts.values):
+            ax.text(i, v, str(v), ha='center', va='bottom',
+                    fontsize=12, fontweight='bold')
+
+        st.pyplot(fig)
+
+
+# ------------------- images Analysis -------------------
+elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis":
+    st.header("🧪 تشخيص السكري بناءً على الجلوكوز | Diabetes Diagnosis by Glucose")
+
+    uploaded_file = st.file_uploader(
+        "اختر صورة الفحص | Upload Image", ["png", "jpg", "jpeg"])
+
+    if uploaded_file:
+        
         image = Image.open(uploaded_file)
-        st.image(image, caption="الصورة المرفوعة", use_container_width=True)
+        st.image(image, use_container_width=True)
 
-        # تهيئة EasyOCR للغة الإنجليزية والعربية
-        reader = easyocr.Reader(['en', 'ar'])
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            image.save(tmp.name)
+            img_path = tmp.name
 
-        # استخراج النصوص من الصورة
-        result = reader.readtext(np.array(image))
+        # ------------------- OCR -------------------
+        reader = easyocr.Reader(['ar', 'en'])
+        results = reader.readtext(img_path)
 
-        if result:
-            st.subheader("النصوص المستخرجة من الصورة:")
-            for (_, text, prob) in result:
-                st.write(f"- {text} (دقة: {prob:.2f})")
+        # Merge all texts
+        full_text = " ".join([r[1] for r in results])
 
-            # محاولة إيجاد قيمة الجلوكوز
-            glucose_values = []
-            for (_, text, _) in result:
-                # تحويل الأرقام العربية إلى إنجليزية
-                text = text.translate(
-                    str.maketrans('٠١٢٣٤٥٦٧٨٩', '0123456789'))
-                # البحث عن أرقام من خانتين أو ثلاث
-                matches = re.findall(r'\b\d{2,3}\b', text)
-                glucose_values.extend(matches)
+        # ------------------- Glucose extraction-------------------
+        glucose = None
+        glucose_patterns = [
+            r'Glucose[:\s]*([0-9]{2,3})',
+            r'([0-9]{2,3})\s*mg\s*/?\s*dL',
+            r'([0-9]{2,3})\s*mg\s*DL',
+            r'سكر[:\s]*([0-9]{2,3})'  
+        ]
+        for p in glucose_patterns:
+            match = re.search(p, full_text, re.IGNORECASE)
+            if match:
+                value = int(match.group(1))
+                if 50 <= value <= 500:
+                    glucose = float(value)
+                    break
 
-            # تصفية القيم الواقعية للجلوكوز
-            glucose_values = [
-                val for val in glucose_values if 40 <= int(val) <= 500]
-
-            # ------------------- تحليل قيم الجلوكوز -------------------
-        if glucose_values:
-            st.success(
-                f"تم العثور على قيم محتملة للجلوكوز: {', '.join(glucose_values)}")
-
-            st.subheader("تحليل حالة الجلوكوز:")
-            for val in glucose_values:
-                val_int = int(val)
-                if val_int < 70:
-                    st.warning(f"قيمة {val_int} mg/dL → منخفض ⚠️")
-                elif 70 <= val_int <= 140:
-                    st.success(f"قيمة {val_int} mg/dL → طبيعي ✅")
-                else:
-                    st.error(f"قيمة {val_int} mg/dL → مرتفع ❌")
+        # ------------------- Simplified diagnosis-------------------
+        if glucose is None:
+            st.error(
+                "❌ لم يتم التعرف على قيمة الجلوكوز في الصورة | Glucose value not detected")
         else:
-            st.warning("لم يتم العثور على قيمة جلوكوز واضحة لتحليلها.")
+            st.write(f"🩸 Glucose: {glucose} mg/dL")
+
+            if glucose < 70:
+                st.warning("🔹 الجلوكوز منخفض | Low Glucose")
+                st.info("""
+    ✅ توصيات | Recommendations:
+    - تناول وجبة صغيرة تحتوي على سكريات طبيعية | Eat a small meal with natural sugars
+    - مراقبة مستوى السكر بانتظام | Monitor glucose regularly
+    - مراجعة طبيب عند الحاجة | Consult a doctor if necessary
+    """)
+            elif 70 <= glucose <= 140:
+                st.success("🟢 طبيعي | Normal | Non-Diabetic")
+                st.info("""
+    ✅ توصيات وقائية | Preventive Recommendations:
+    - الحفاظ على نمط حياة صحي | Maintain a healthy lifestyle
+    - متابعة تحليل السكر بشكل دوري | Monitor glucose periodically
+    - تناول غذاء متوازن | Eat a balanced diet
+    """)
+            else:
+                st.error("🔴 مرتفع | High Glucose: Possible Diabetes")
+                st.warning("""
+    🚨 توصيات طبية | Medical Recommendations:
+    - مراجعة طبيب غدد فوراً | See an endocrinologist immediately
+    - الالتزام بحمية لمرضى السكري | Follow a diabetic diet
+    - مراقبة السكر يومياً | Monitor glucose daily
+    - ممارسة الرياضة بانتظام | Exercise regularly
+    """)
