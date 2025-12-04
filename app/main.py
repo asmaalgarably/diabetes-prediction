@@ -1,4 +1,4 @@
-﻿import easyocr
+﻿import pytesseract
 import streamlit as st
 import pandas as pd
 import pickle
@@ -10,7 +10,6 @@ from bidi.algorithm import get_display
 import os
 from PIL import Image
 import re
-import cv2
 import numpy as np
 import tempfile
 
@@ -362,69 +361,66 @@ elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis
     st.header("🧪 تشخيص السكري بناءً على الجلوكوز | Diabetes Diagnosis by Glucose")
 
     uploaded_file = st.file_uploader(
-        "اختر صورة الفحص | Upload Image", ["png", "jpg", "jpeg"])
+        "اختر صورة الفحص | Upload Image", ["png", "jpg", "jpeg"]
+    )
 
     if uploaded_file:
-        
+
         image = Image.open(uploaded_file)
         st.image(image, use_container_width=True)
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-            image.save(tmp.name)
-            img_path = tmp.name
+        # ------------------- OCR using Tesseract -------------------
+        extracted_text = pytesseract.image_to_string(image, lang="eng")
 
-        # ------------------- OCR -------------------
-        reader = easyocr.Reader(['ar', 'en'])
-        results = reader.readtext(img_path)
-
-        # Merge all texts
-        full_text = " ".join([r[1] for r in results])
-
-        # ------------------- Glucose extraction-------------------
+        # ------------------- Glucose extraction -------------------
         glucose = None
         glucose_patterns = [
             r'Glucose[:\s]*([0-9]{2,3})',
             r'([0-9]{2,3})\s*mg\s*/?\s*dL',
             r'([0-9]{2,3})\s*mg\s*DL',
-            r'سكر[:\s]*([0-9]{2,3})'  
+            r'سكر[:\s]*([0-9]{2,3})'
         ]
+
         for p in glucose_patterns:
-            match = re.search(p, full_text, re.IGNORECASE)
+            match = re.search(p, extracted_text, re.IGNORECASE)
             if match:
                 value = int(match.group(1))
                 if 50 <= value <= 500:
                     glucose = float(value)
                     break
 
-        # ------------------- Simplified diagnosis-------------------
+        # ------------------- Diagnosis -------------------
         if glucose is None:
             st.error(
-                "❌ لم يتم التعرف على قيمة الجلوكوز في الصورة | Glucose value not detected")
+                "❌ لم يتم التعرف على قيمة الجلوكوز في الصورة | Glucose value not detected"
+            )
         else:
             st.write(f"🩸 Glucose: {glucose} mg/dL")
 
             if glucose < 70:
                 st.warning("🔹 الجلوكوز منخفض | Low Glucose")
                 st.info("""
-    ✅ توصيات | Recommendations:
-    - تناول وجبة صغيرة تحتوي على سكريات طبيعية | Eat a small meal with natural sugars
-    - مراقبة مستوى السكر بانتظام | Monitor glucose regularly
-    - مراجعة طبيب عند الحاجة | Consult a doctor if necessary
-    """)
+✅ توصيات | Recommendations:
+- تناول وجبة تحتوي على سكريات طبيعية | Eat natural sugars
+- متابعة مستوى السكر | Monitor glucose
+- مراجعة الطبيب عند الحاجة | Consult a doctor
+""")
+
             elif 70 <= glucose <= 140:
                 st.success("🟢 طبيعي | Normal | Non-Diabetic")
                 st.info("""
-    ✅ توصيات وقائية | Preventive Recommendations:
-    - الحفاظ على نمط حياة صحي | Maintain a healthy lifestyle
-    - متابعة تحليل السكر بشكل دوري | Monitor glucose periodically
-    - تناول غذاء متوازن | Eat a balanced diet
-    """)
+✅ توصيات وقائية | Preventive Recommendations:
+- نمط حياة صحي | Healthy lifestyle
+- فحص دوري للسكر | Periodic glucose check
+- غذاء متوازن | Balanced diet
+""")
+
             else:
                 st.error("🔴 مرتفع | High Glucose: Possible Diabetes")
                 st.warning("""
-    🚨 توصيات طبية | Medical Recommendations:
-    - مراجعة طبيب غدد فوراً | See an endocrinologist immediately
-    - الالتزام بحمية لمرضى السكري | Follow a diabetic diet
-    - مراقبة السكر يومياً | Monitor glucose daily
-    - ممارسة الرياضة بانتظام | Exercise regularly
-    """)
+🚨 توصيات طبية | Medical Recommendations:
+- مراجعة طبيب فورًا | See a doctor immediately
+- حمية لمرضى السكري | Diabetic diet
+- فحص السكر يوميًا | Daily glucose check
+- ممارسة الرياضة | Exercise regularly
+""")

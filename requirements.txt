@@ -8,7 +8,4 @@ python-bidi
 Pillow
 scikit-learn
 imbalanced-learn
-easyocr
-opencv-python-headless
-torch
-torchvision
+pytesseract
