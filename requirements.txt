@@ -8,5 +8,5 @@ fpdf
 arabic-reshaper
 python-bidi
 pillow
-opencv-python
+opencv-python-headless
 pytesseract
