@@ -23,8 +23,8 @@ scaler_path = os.path.join(current_dir, "..", "models", "rf_scaler.pkl")
 columns_path = os.path.join(current_dir, "..", "models", "rf_columns.pkl")
 
 # Images
-logo_path = os.path.join(current_dir, "..", "images", "logo.png")
-logo_path1 = os.path.join(current_dir, "..", "images", "logo1.png")
+logo_path = os.path.join(current_dir, "..", "image", "logo.png")
+logo_path1 = os.path.join(current_dir, "..", "image", "logo1.png")
 
 # Fonts
 font_path = os.path.join(current_dir, "Fonts", "DejaVuSans.ttf")
@@ -47,6 +47,7 @@ if "saved_advice" not in st.session_state:
 
 
 def add_arabic(pdf, text, font_size=12, bold=False):
+     
     style = "B" if bold else ""
     pdf.set_font("DejaVu", style, font_size)
     reshaped_text = arabic_reshaper.reshape(text)
@@ -58,35 +59,147 @@ def add_arabic(pdf, text, font_size=12, bold=False):
 def generate_pdf(patient_info):
     pdf = FPDF()
     pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
 
-    # Borders
-    pdf.set_line_width(0.5)
-    pdf.rect(5, 5, 200, 287)
-
-    # Fonts
+    # ---Font settings---
     pdf.add_font("DejaVu", "", font_path, uni=True)
     pdf.add_font("DejaVu", "B", font_path, uni=True)
-    pdf.set_font("DejaVu", "", 12)
 
-    # Logo
+    # --- Header ---
+    pdf.set_font("DejaVu", "", 9)
+    pdf.set_text_color(100, 100, 100)
+    arbic_text = arabic_reshaper.reshape("النظام الذكي لتقييم خطر السكري")
+    arbic = get_display(arbic_text)
+    pdf.cell(
+        0, 10, f"Smart Diabetes Risk Assessment System | {arbic}", 0, 1, 'C')
+    pdf.set_text_color(0, 0, 0)
+
+    # --- Logo ---
     if os.path.exists(logo_path1):
-        logo_width = 70
+        logo_width = 60
         page_width = pdf.w - 2 * pdf.l_margin
         x_center = (page_width - logo_width) / 2 + pdf.l_margin
-        pdf.image(logo_path1, x=x_center, y=10, w=logo_width)
-        pdf.ln(35)
+        pdf.image(logo_path1, x=x_center, y=25, w=logo_width)
+        pdf.ln(50)
 
-    # Report Title
-    add_arabic(pdf, "Patient's medical report | التقرير الطبي للمريض",
-               font_size=16, bold=True)
+    # --- Main Title ---
+    pdf.set_font("DejaVu", "B", 18)
+    title = get_display(arabic_reshaper.reshape(
+        "Patient's medical report | التقرير الطبي للمريض"))
+    pdf.cell(0, 10, title, 0, 1, 'C')
+    pdf.ln(5)
 
-    # Patient Data
-    for key, value in patient_info.items():
-        add_arabic(pdf, f"{key}: {value}")
+    pdf.set_line_width(0.5)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+    pdf.ln(10)
 
-    pdf_bytes = pdf.output(dest='S')
-    pdf_buffer = BytesIO(pdf_bytes)
-    return pdf_buffer.getvalue()
+    # --- Basic patient data ---
+    pdf.set_font("DejaVu", "B", 14)
+    section_title = get_display(
+        arabic_reshaper.reshape("بيانات المريض الأساسية"))
+    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.ln(3)
+
+    pdf.set_font("DejaVu", "", 12)
+
+    basic_data = {
+        "الاسم | Name": patient_info.get("الاسم | Name", ""),
+        "العمر | Age": patient_info.get("العمر | Age", ""),
+        "الجنس | Gender": patient_info.get("الجنس | Gender", "")
+    }
+
+    for key, value in basic_data.items():
+        key_ar = get_display(arabic_reshaper.reshape(str(key)))
+        raw_value = str(value)
+
+        if "|" in raw_value:
+            ar_part = raw_value.split("|")[0].strip()
+            en_part = raw_value.split("|")[1].strip()
+            ar_fixed = get_display(arabic_reshaper.reshape(ar_part))
+            final_text = f"{ar_fixed} | {en_part}"
+        else:
+            final_text = get_display(arabic_reshaper.reshape(raw_value))
+
+        pdf.cell(60, 8, key_ar, 1, 0, 'R')
+        pdf.cell(0, 8, final_text, 1, 1, 'R')
+
+    pdf.ln(10)
+
+    # --- Clinical data ---
+    pdf.set_font("DejaVu", "B", 14)
+    section_title = get_display(arabic_reshaper.reshape("البيانات السريرية"))
+    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.ln(3)
+
+    pdf.set_font("DejaVu", "", 12)
+
+    clinical_data = {
+        "الوزن (كغ) | Weight": patient_info.get("الوزن | Weight", ""),
+        "الطول (سم) | Height": patient_info.get("الطول | Height", ""),
+        "مؤشر كتلة الجسم (BMI)": patient_info.get("BMI", ""),
+        "مستوى الجلوكوز | Glucose": patient_info.get("مستوى الجلوكوز | Glucose", "")
+    }
+
+    for key, value in clinical_data.items():
+        key_ar = get_display(arabic_reshaper.reshape(str(key)))
+        raw_value = str(value)
+
+        if "|" in raw_value:
+            ar_part = raw_value.split("|")[0].strip()
+            en_part = raw_value.split("|")[1].strip()
+            ar_fixed = get_display(arabic_reshaper.reshape(ar_part))
+            final_text = f"{ar_fixed} | {en_part}"
+        else:
+            final_text = get_display(arabic_reshaper.reshape(raw_value))
+
+        pdf.cell(60, 8, key_ar, 1, 0, 'R')
+        pdf.cell(0, 8, final_text, 1, 1, 'R')
+
+    pdf.ln(10)
+
+    # --- Risk assessment ---
+    pdf.set_font("DejaVu", "B", 14)
+    section_title = get_display(arabic_reshaper.reshape("مستوى الخطورة"))
+    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.ln(3)
+
+    risk_level = patient_info.get("مستوى الخطورة | Risk Level", "")
+
+    if "Low" in risk_level or "منخفض" in risk_level:
+        pdf.set_text_color(0, 128, 0)
+    elif "Medium" in risk_level or "متوسط" in risk_level:
+        pdf.set_text_color(255, 140, 0)
+    else:
+        pdf.set_text_color(220, 20, 60)
+
+    pdf.set_font("DejaVu", "B", 16)
+    reshaped_risk = get_display(arabic_reshaper.reshape(risk_level))
+    pdf.cell(0, 10, reshaped_risk, 0, 1, 'C')
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(10)
+
+    # --- Medical recommendations ---
+    pdf.set_font("DejaVu", "B", 14)
+    section_title = get_display(arabic_reshaper.reshape("التوصيات الطبية"))
+    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.ln(5)
+
+    pdf.set_font("DejaVu", "", 11)
+    advice = patient_info.get("التوصيات الطبية", "")
+    add_arabic(pdf, advice, font_size=11)
+
+    # --- Footer ---
+    pdf.set_y(-25)
+    pdf.set_font("DejaVu", "", 8)
+    pdf.set_text_color(150, 150, 150)
+    footer_text = get_display(arabic_reshaper.reshape(
+        "هذا التقرير داعم للقرار الطبي ولا يغني عن استشارة الطبيب المختص"))
+    pdf.cell(0, 10, footer_text, 0, 0, 'C')
+
+    # --- Generate File ---
+    pdf_bytes = BytesIO(pdf.output(dest='S'))
+    return pdf_bytes.getvalue()
 
 
 # ------------------- Streamlit Page Config -------------------
@@ -376,13 +489,13 @@ elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis
         # دمج كل النصوص
         full_text = " ".join([r[1] for r in results])
 
-        # ------------------- استخراج الجلوكوز -------------------
+        # -------------------Glucose extraction -------------------
         glucose = None
         glucose_patterns = [
             r'Glucose[:\s]*([0-9]{2,3})',
             r'([0-9]{2,3})\s*mg\s*/?\s*dL',
             r'([0-9]{2,3})\s*mg\s*DL',
-            r'سكر[:\s]*([0-9]{2,3})'  # دعم النص العربي
+            r'سكر[:\s]*([0-9]{2,3})'  
         ]
         for p in glucose_patterns:
             match = re.search(p, full_text, re.IGNORECASE)
@@ -392,7 +505,7 @@ elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis
                     glucose = float(value)
                     break
 
-        # ------------------- التشخيص  -------------------
+        # ------------------- Diagnosis  -------------------
         if glucose is None:
             st.error("❌ لم يتم التعرف على قيمة الجلوكوز في الصورة | Glucose value not detected")
         else:
