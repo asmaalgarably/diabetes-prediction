@@ -199,6 +199,7 @@ def generate_pdf(patient_info):
 
     # --- Generate File ---
     pdf_bytes = BytesIO(pdf.output(dest='S'))
+ 
     return pdf_bytes.getvalue()
 
 
