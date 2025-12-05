@@ -198,9 +198,9 @@ def generate_pdf(patient_info):
     pdf.cell(0, 10, footer_text, 0, 0, 'C')
 
     # --- Generate File ---
-    pdf_bytes = pdf.output(dest='S')
+    return pdf.output(dest='S')
  
-    return pdf_bytes.getvalue()
+   
 
 
 # ------------------- Streamlit Page Config -------------------
@@ -398,10 +398,19 @@ elif page == "التقرير الطبي للمريض | Medical Report":
         }
 
         pdf_bytes = generate_pdf({**patient_info, "التوصيات الطبية": advice})
+        st.success("تم تحميل تقريرك | Done Download Report")
+        pdf_bytes = bytes(pdf_bytes)  
 
-        st.success("✅ تم إنشاء التقرير بنجاح | PDF Generated Successfully")
-        st.download_button("⬇️ تحميل التقرير | Download Report",
-                           pdf_bytes, f"{name}_Medical_Report.pdf")
+        st.download_button(
+            "⬇️ تحميل التقرير | Download Report",
+            pdf_bytes,
+            file_name=f"{name}_Medical_Report.pdf",
+            mime="application/pdf"
+)
+
+
+
+
 
 # =================== BATCH ANALYSIS ===================
 elif page == "التحليل الجماعي | Batch Analysis":
