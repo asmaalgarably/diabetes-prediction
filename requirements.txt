@@ -2,10 +2,13 @@
 pandas
 numpy
 matplotlib
+pillow
 fpdf
-arabic-reshaper
+arabic_reshaper
 python-bidi
-Pillow
-scikit-learn
-imbalanced-learn
 pytesseract
+easyocr
+torch
+torchvision
+opencv-python-headless
+scikit-learn

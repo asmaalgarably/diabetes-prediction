@@ -12,22 +12,32 @@ from PIL import Image
 import re
 import numpy as np
 import tempfile
-
-# ------------------- Load Model, Scaler, Columns -------------------
-with open('../models/rf_diabetes_model.pkl', 'rb') as f:
-    model = pickle.load(f)
-
-with open('../models/rf_scaler.pkl', 'rb') as f:
-    scaler = pickle.load(f)
-
-with open('../models/rf_columns.pkl', 'rb') as f:
-    model_columns = pickle.load(f)
+import easyocr
 
 # ------------------- Paths -------------------
 current_dir = os.path.dirname(__file__)
-logo_path = os.path.join(current_dir, "..", "image", "logo.png")
-logo_path1 = os.path.join(current_dir, "..", "image", "logo1.png")
+
+# Models
+model_path = os.path.join(current_dir, "..", "models", "rf_diabetes_model.pkl")
+scaler_path = os.path.join(current_dir, "..", "models", "rf_scaler.pkl")
+columns_path = os.path.join(current_dir, "..", "models", "rf_columns.pkl")
+
+# Images
+logo_path = os.path.join(current_dir, "..", "images", "logo.png")
+logo_path1 = os.path.join(current_dir, "..", "images", "logo1.png")
+
+# Fonts
 font_path = os.path.join(current_dir, "Fonts", "DejaVuSans.ttf")
+
+# ------------------- Load Models -------------------
+with open(model_path, "rb") as f:
+    model = pickle.load(f)
+
+with open(scaler_path, "rb") as f:
+    scaler = pickle.load(f)
+
+with open(columns_path, "rb") as f:
+    model_columns = pickle.load(f)
 
 # ------------------- Session State -------------------
 if "saved_advice" not in st.session_state:
@@ -49,40 +59,37 @@ def generate_pdf(patient_info):
     pdf = FPDF()
     pdf.add_page()
 
-    # ------------------ Borders------------------
+    # Borders
     pdf.set_line_width(0.5)
-    pdf.rect(5, 5, 200, 287)  
+    pdf.rect(5, 5, 200, 287)
 
-    # ------------------add lines ------------------
+    # Fonts
     pdf.add_font("DejaVu", "", font_path, uni=True)
     pdf.add_font("DejaVu", "B", font_path, uni=True)
-
     pdf.set_font("DejaVu", "", 12)
 
-    # ------------------ Logo------------------
-    if os.path.exists(logo_path):
+    # Logo
+    if os.path.exists(logo_path1):
         logo_width = 70
         page_width = pdf.w - 2 * pdf.l_margin
         x_center = (page_width - logo_width) / 2 + pdf.l_margin
         pdf.image(logo_path1, x=x_center, y=10, w=logo_width)
         pdf.ln(35)
 
-    # ------------------ Report------------------
-
+    # Report Title
     add_arabic(pdf, "Patient's medical report | التقرير الطبي للمريض",
                font_size=16, bold=True)
 
-    # ------------------ Patient data ------------------
+    # Patient Data
     for key, value in patient_info.items():
         add_arabic(pdf, f"{key}: {value}")
 
-    pdf_bytes = pdf.output(dest='S')  
+    pdf_bytes = pdf.output(dest='S')
     pdf_buffer = BytesIO(pdf_bytes)
     return pdf_buffer.getvalue()
 
 
-
-# ------------------- Page Config -------------------
+# ------------------- Streamlit Page Config -------------------
 st.set_page_config(
     page_title="النظام الذكي لتقييم خطر الإصابة بالسكري | Smart Diabetes Risk Assessment",
     layout="wide",
@@ -102,7 +109,6 @@ page = st.sidebar.radio(
 
 # =================== HOME PAGE ===================
 if page == "الصفحة الرئيسية | Home":
-
     if os.path.exists(logo_path):
         st.image(logo_path, width=350)
 
@@ -129,9 +135,8 @@ if page == "الصفحة الرئيسية | Home":
     🔴 This system does not replace professional medical consultation
     """)
 
-# =================== PAGE 2: SAVE PATIENT DATA ===================
+# =================== PAGE 2: PATIENT RISK ASSESSMENT ===================
 elif page == "تقييم خطر المريض | Patient Risk Assessment":
-
     st.header("🧑‍⚕️ إدخل بيانات المريض | Enter Patient Data")
 
     with st.form("patient_form"):
@@ -174,9 +179,8 @@ elif page == "تقييم خطر المريض | Patient Risk Assessment":
     if save_btn:
         st.success("✅ تم حفظ البيانات! سيتم استخدامها في التقرير الطبي لاحقًا.")
 
-# =================== MEDICAL REPORT PAGE ===================
+# =================== PAGE 3: MEDICAL REPORT ===================
 elif page == "التقرير الطبي للمريض | Medical Report":
-
     st.header("📄 التقرير الطبي للمريض | Patient Medical Report")
 
     with st.form("pdf_form"):
@@ -221,13 +225,18 @@ elif page == "التقرير الطبي للمريض | Medical Report":
             'family_diabetes': [1 if family_diabetes.endswith("Yes") else 0],
             'hypertensive': [1 if hypertensive.endswith("Yes") else 0]
         })
+
+        # One-hot encoding
         new_data = pd.get_dummies(new_data, drop_first=True)
+
+        # Add missing columns
         for col in model_columns:
             if col not in new_data.columns:
                 new_data[col] = 0
         new_data = new_data[model_columns]
-        new_data_scaled = scaler.transform(new_data)
 
+        # Scale and predict
+        new_data_scaled = scaler.transform(new_data)
         pred = model.predict(new_data_scaled)[0]
         prob = model.predict_proba(new_data_scaled)[0][1]
 
@@ -263,7 +272,6 @@ elif page == "التقرير الطبي للمريض | Medical Report":
 🚨 التزم بالمواعيد الدورية للطبيب وأخصائي التغذية.
 """
 
-        # إنشاء PDF
         patient_info = {
             "الاسم | Name": name,
             "العمر | Age": age,
@@ -283,7 +291,6 @@ elif page == "التقرير الطبي للمريض | Medical Report":
 
 # =================== BATCH ANALYSIS ===================
 elif page == "التحليل الجماعي | Batch Analysis":
-
     st.header("📊 التحليل الجماعي | Batch Analysis")
 
     uploaded_file = st.file_uploader(
@@ -293,14 +300,12 @@ elif page == "التحليل الجماعي | Batch Analysis":
     if uploaded_file:
         df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(
             ".csv") else pd.read_excel(uploaded_file)
-
         st.success("✅ تم تحميل الملف بنجاح | File Uploaded Successfully")
 
         results = []
 
         for _, row in df.iterrows():
             bmi = row['weight'] / ((row['height'] / 100) ** 2)
-
             new_data = pd.DataFrame({
                 'age': [row['age']],
                 'gender': [row['gender']],
@@ -309,21 +314,17 @@ elif page == "التحليل الجماعي | Batch Analysis":
                 'family_diabetes': [1 if str(row['family_diabetes']).endswith("Yes") else 0],
                 'hypertensive': [1 if str(row['hypertensive']).endswith("Yes") else 0]
             })
-
             new_data = pd.get_dummies(new_data, drop_first=True)
-
             for col in model_columns:
                 if col not in new_data.columns:
                     new_data[col] = 0
-
             new_data = new_data[model_columns]
-            pred = model.predict(scaler.transform(new_data))[0]
 
+            pred = model.predict(scaler.transform(new_data))[0]
             status_table = "مصاب | Diabetic" if pred == 1 else "غير مصاب | Non-Diabetic"
             arabic_status = arabic_reshaper.reshape(
                 "مصاب") if pred == 1 else arabic_reshaper.reshape("غير مصاب")
             status_chart = f"{get_display(arabic_status)} | {'Diabetic' if pred == 1 else 'Non-Diabetic'}"
-
             results.append({
                 "الاسم | Name": row['name'],
                 "الحالة | Status": status_table,
@@ -331,7 +332,6 @@ elif page == "التحليل الجماعي | Batch Analysis":
             })
 
         results_df = pd.DataFrame(results)
-
         st.subheader("📋 نتائج التحليل | Batch Results")
         st.dataframe(results_df[["الاسم | Name", "الحالة | Status"]])
 
@@ -341,86 +341,85 @@ elif page == "التحليل الجماعي | Batch Analysis":
         fig, ax = plt.subplots(figsize=(7, 5))
         colors = ['#e74c3c', '#2ecc71']
         ax.bar(status_counts.index, status_counts.values, color=colors)
-
         ax.set_xlabel(get_display(
             arabic_reshaper.reshape("الحالة")) + " | Status")
         ax.set_ylabel(get_display(arabic_reshaper.reshape(
             "عدد المرضى")) + " | Number of Patients")
         ax.set_title(get_display(arabic_reshaper.reshape(
             "توزيع حالات السكري")) + " | Diabetes Status Distribution")
-
         for i, v in enumerate(status_counts.values):
             ax.text(i, v, str(v), ha='center', va='bottom',
                     fontsize=12, fontweight='bold')
 
         st.pyplot(fig)
 
-
-# ------------------- images Analysis -------------------
+# =================== MEDICAL IMAGE ANALYSIS ===================
 elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis":
     st.header("🧪 تشخيص السكري بناءً على الجلوكوز | Diabetes Diagnosis by Glucose")
 
-    uploaded_file = st.file_uploader(
-        "اختر صورة الفحص | Upload Image", ["png", "jpg", "jpeg"]
-    )
+    uploaded_file = st.file_uploader("اختر صورة الفحص | Upload Image", ["png", "jpg", "jpeg"])
 
     if uploaded_file:
-
+        # عرض الصورة
         image = Image.open(uploaded_file)
         st.image(image, use_container_width=True)
 
-        # ------------------- OCR using Tesseract -------------------
-        extracted_text = pytesseract.image_to_string(image, lang="eng")
+        # حفظ الصورة مؤقتًا للـ OCR
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+            image.save(tmp.name)
+            img_path = tmp.name
 
-        # ------------------- Glucose extraction -------------------
+        # ------------------- OCR -------------------
+        reader = easyocr.Reader(['ar', 'en'])
+        results = reader.readtext(img_path)
+
+        # دمج كل النصوص
+        full_text = " ".join([r[1] for r in results])
+
+        # ------------------- استخراج الجلوكوز -------------------
         glucose = None
         glucose_patterns = [
             r'Glucose[:\s]*([0-9]{2,3})',
             r'([0-9]{2,3})\s*mg\s*/?\s*dL',
             r'([0-9]{2,3})\s*mg\s*DL',
-            r'سكر[:\s]*([0-9]{2,3})'
+            r'سكر[:\s]*([0-9]{2,3})'  # دعم النص العربي
         ]
-
         for p in glucose_patterns:
-            match = re.search(p, extracted_text, re.IGNORECASE)
+            match = re.search(p, full_text, re.IGNORECASE)
             if match:
                 value = int(match.group(1))
                 if 50 <= value <= 500:
                     glucose = float(value)
                     break
 
-        # ------------------- Diagnosis -------------------
+        # ------------------- التشخيص  -------------------
         if glucose is None:
-            st.error(
-                "❌ لم يتم التعرف على قيمة الجلوكوز في الصورة | Glucose value not detected"
-            )
+            st.error("❌ لم يتم التعرف على قيمة الجلوكوز في الصورة | Glucose value not detected")
         else:
             st.write(f"🩸 Glucose: {glucose} mg/dL")
 
             if glucose < 70:
                 st.warning("🔹 الجلوكوز منخفض | Low Glucose")
                 st.info("""
-✅ توصيات | Recommendations:
-- تناول وجبة تحتوي على سكريات طبيعية | Eat natural sugars
-- متابعة مستوى السكر | Monitor glucose
-- مراجعة الطبيب عند الحاجة | Consult a doctor
-""")
-
+    ✅ توصيات | Recommendations:
+    - تناول وجبة صغيرة تحتوي على سكريات طبيعية | Eat a small meal with natural sugars
+    - مراقبة مستوى السكر بانتظام | Monitor glucose regularly
+    - مراجعة طبيب عند الحاجة | Consult a doctor if necessary
+    """)
             elif 70 <= glucose <= 140:
                 st.success("🟢 طبيعي | Normal | Non-Diabetic")
                 st.info("""
-✅ توصيات وقائية | Preventive Recommendations:
-- نمط حياة صحي | Healthy lifestyle
-- فحص دوري للسكر | Periodic glucose check
-- غذاء متوازن | Balanced diet
-""")
-
+    ✅ توصيات وقائية | Preventive Recommendations:
+    - الحفاظ على نمط حياة صحي | Maintain a healthy lifestyle
+    - متابعة تحليل السكر بشكل دوري | Monitor glucose periodically
+    - تناول غذاء متوازن | Eat a balanced diet
+    """)
             else:
                 st.error("🔴 مرتفع | High Glucose: Possible Diabetes")
                 st.warning("""
-🚨 توصيات طبية | Medical Recommendations:
-- مراجعة طبيب فورًا | See a doctor immediately
-- حمية لمرضى السكري | Diabetic diet
-- فحص السكر يوميًا | Daily glucose check
-- ممارسة الرياضة | Exercise regularly
-""")
+    🚨 توصيات طبية | Medical Recommendations:
+    - مراجعة طبيب غدد فوراً | See an endocrinologist immediately
+    - الالتزام بحمية لمرضى السكري | Follow a diabetic diet
+    - مراقبة السكر يومياً | Monitor glucose daily
+    - ممارسة الرياضة بانتظام | Exercise regularly
+    """)
