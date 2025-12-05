@@ -198,7 +198,8 @@ def generate_pdf(patient_info):
     pdf.cell(0, 10, footer_text, 0, 0, 'C')
 
     # --- Generate File ---
-    return pdf.output(dest='S')
+    pdf_bytes = pdf.output(dest='S')  
+    return bytes(pdf_bytes)
  
    
 
@@ -399,7 +400,7 @@ elif page == "التقرير الطبي للمريض | Medical Report":
 
         pdf_bytes = generate_pdf({**patient_info, "التوصيات الطبية": advice})
         st.success("تم تحميل تقريرك | Done Download Report")
-        pdf_bytes = bytes(pdf_bytes)  
+         
 
         st.download_button(
             "⬇️ تحميل التقرير | Download Report",
