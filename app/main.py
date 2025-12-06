@@ -1,18 +1,19 @@
-﻿import pytesseract
-import streamlit as st
-import pandas as pd
+﻿import os
 import pickle
-from io import BytesIO
-import matplotlib.pyplot as plt
-from fpdf import FPDF
-import arabic_reshaper
-from bidi.algorithm import get_display
-import os
-from PIL import Image
 import re
-import numpy as np
 import tempfile
+from io import BytesIO
+
+import arabic_reshaper
 import easyocr
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import pytesseract
+import streamlit as st
+from bidi.algorithm import get_display
+from fpdf import FPDF
+from PIL import Image
 
 # ------------------- Paths -------------------
 current_dir = os.path.dirname(__file__)
@@ -44,37 +45,20 @@ if "saved_advice" not in st.session_state:
     st.session_state.saved_advice = ""
 
 # ------------------- PDF Functions -------------------
-
-
-def add_arabic(pdf, text, font_size=12, bold=False):
-     
-    style = "B" if bold else ""
-    pdf.set_font("DejaVu", style, font_size)
-    reshaped_text = arabic_reshaper.reshape(text)
-    bidi_text = get_display(reshaped_text)
-    pdf.multi_cell(0, 8, bidi_text, align='R')
-    pdf.ln(2)
-
-
 def generate_pdf(patient_info):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
-
-    # ---Font settings---
     pdf.add_font("DejaVu", "", font_path, uni=True)
     pdf.add_font("DejaVu", "B", font_path, uni=True)
 
-    # --- Header ---
+    # Header
     pdf.set_font("DejaVu", "", 9)
     pdf.set_text_color(100, 100, 100)
-    arbic_text = arabic_reshaper.reshape("النظام الذكي لتقييم خطر السكري")
-    arbic = get_display(arbic_text)
-    pdf.cell(
-        0, 10, f"Smart Diabetes Risk Assessment System | {arbic}", 0, 1, 'C')
+    pdf.cell(0, 10, "Smart Diabetes Risk Assessment System", 0, 1, 'C')
     pdf.set_text_color(0, 0, 0)
 
-    # --- Logo ---
+    # Logo
     if os.path.exists(logo_path1):
         logo_width = 60
         page_width = pdf.w - 2 * pdf.l_margin
@@ -82,123 +66,78 @@ def generate_pdf(patient_info):
         pdf.image(logo_path1, x=x_center, y=25, w=logo_width)
         pdf.ln(50)
 
-    # --- Main Title ---
+    # Main Title
     pdf.set_font("DejaVu", "B", 18)
-    title = get_display(arabic_reshaper.reshape(
-        "Patient's medical report | التقرير الطبي للمريض"))
-    pdf.cell(0, 10, title, 0, 1, 'C')
+    pdf.cell(0, 10, "Patient Medical Report", 0, 1, 'C')
     pdf.ln(5)
-
     pdf.set_line_width(0.5)
     pdf.set_draw_color(200, 200, 200)
     pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
     pdf.ln(10)
 
-    # --- Basic patient data ---
+    # Basic Patient Info
     pdf.set_font("DejaVu", "B", 14)
-    section_title = get_display(
-        arabic_reshaper.reshape("بيانات المريض الأساسية"))
-    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.cell(0, 10, "Basic Patient Info", 0, 1, 'L')
     pdf.ln(3)
-
     pdf.set_font("DejaVu", "", 12)
-
     basic_data = {
-        "الاسم | Name": patient_info.get("الاسم | Name", ""),
-        "العمر | Age": patient_info.get("العمر | Age", ""),
-        "الجنس | Gender": patient_info.get("الجنس | Gender", "")
+        "Name": patient_info.get("Name", ""),
+        "Age": patient_info.get("Age", ""),
+        "Gender": patient_info.get("Gender", "")
     }
-
     for key, value in basic_data.items():
-        key_ar = get_display(arabic_reshaper.reshape(str(key)))
-        raw_value = str(value)
-
-        if "|" in raw_value:
-            ar_part = raw_value.split("|")[0].strip()
-            en_part = raw_value.split("|")[1].strip()
-            ar_fixed = get_display(arabic_reshaper.reshape(ar_part))
-            final_text = f"{ar_fixed} | {en_part}"
-        else:
-            final_text = get_display(arabic_reshaper.reshape(raw_value))
-
-        pdf.cell(60, 8, key_ar, 1, 0, 'R')
-        pdf.cell(0, 8, final_text, 1, 1, 'R')
-
+        pdf.cell(60, 8, str(key), 1, 0, 'L')
+        pdf.cell(0, 8, str(value), 1, 1, 'L')
     pdf.ln(10)
 
-    # --- Clinical data ---
+    # Clinical Data
     pdf.set_font("DejaVu", "B", 14)
-    section_title = get_display(arabic_reshaper.reshape("البيانات السريرية"))
-    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.cell(0, 10, "Clinical Data", 0, 1, 'L')
     pdf.ln(3)
-
     pdf.set_font("DejaVu", "", 12)
-
     clinical_data = {
-        "الوزن (كغ) | Weight": patient_info.get("الوزن | Weight", ""),
-        "الطول (سم) | Height": patient_info.get("الطول | Height", ""),
-        "مؤشر كتلة الجسم (BMI)": patient_info.get("BMI", ""),
-        "مستوى الجلوكوز | Glucose": patient_info.get("مستوى الجلوكوز | Glucose", "")
+        "Weight (kg)": patient_info.get("Weight", ""),
+        "Height (cm)": patient_info.get("Height", ""),
+        "BMI": patient_info.get("BMI", ""),
+        "Glucose (mg/dL)": patient_info.get("Glucose", "")
     }
-
     for key, value in clinical_data.items():
-        key_ar = get_display(arabic_reshaper.reshape(str(key)))
-        raw_value = str(value)
-
-        if "|" in raw_value:
-            ar_part = raw_value.split("|")[0].strip()
-            en_part = raw_value.split("|")[1].strip()
-            ar_fixed = get_display(arabic_reshaper.reshape(ar_part))
-            final_text = f"{ar_fixed} | {en_part}"
-        else:
-            final_text = get_display(arabic_reshaper.reshape(raw_value))
-
-        pdf.cell(60, 8, key_ar, 1, 0, 'R')
-        pdf.cell(0, 8, final_text, 1, 1, 'R')
-
+        pdf.cell(60, 8, str(key), 1, 0, 'L')
+        pdf.cell(0, 8, str(value), 1, 1, 'L')
     pdf.ln(10)
 
-    # --- Risk assessment ---
+    # Risk Level
     pdf.set_font("DejaVu", "B", 14)
-    section_title = get_display(arabic_reshaper.reshape("مستوى الخطورة"))
-    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.cell(0, 10, "Risk Level", 0, 1, 'L')
     pdf.ln(3)
-
-    risk_level = patient_info.get("مستوى الخطورة | Risk Level", "")
-
-    if "Low" in risk_level or "منخفض" in risk_level:
+    risk_level = patient_info.get("Risk Level", "")
+    if "Low" in risk_level:
         pdf.set_text_color(0, 128, 0)
-    elif "Medium" in risk_level or "متوسط" in risk_level:
+    elif "Medium" in risk_level:
         pdf.set_text_color(255, 140, 0)
     else:
         pdf.set_text_color(220, 20, 60)
-
     pdf.set_font("DejaVu", "B", 16)
-    reshaped_risk = get_display(arabic_reshaper.reshape(risk_level))
-    pdf.cell(0, 10, reshaped_risk, 0, 1, 'C')
+    pdf.cell(0, 10, risk_level, 0, 1, 'C')
     pdf.set_text_color(0, 0, 0)
     pdf.ln(10)
 
-    # --- Medical recommendations ---
+    # Medical Recommendations
     pdf.set_font("DejaVu", "B", 14)
-    section_title = get_display(arabic_reshaper.reshape("التوصيات الطبية"))
-    pdf.cell(0, 10, section_title, 0, 1, 'R')
+    pdf.cell(0, 10, "Medical Recommendations", 0, 1, 'L')
+    pdf.ln(5)
+    pdf.set_font("DejaVu", "", 11)
+    advice = patient_info.get("Advice", "")
+    pdf.multi_cell(0, 8, advice)
     pdf.ln(5)
 
-    pdf.set_font("DejaVu", "", 11)
-    advice = patient_info.get("التوصيات الطبية", "")
-    add_arabic(pdf, advice, font_size=11)
-
-    # --- Footer ---
+    # Footer
     pdf.set_y(-25)
     pdf.set_font("DejaVu", "", 8)
     pdf.set_text_color(150, 150, 150)
-    footer_text = get_display(arabic_reshaper.reshape(
-        "هذا التقرير داعم للقرار الطبي ولا يغني عن استشارة الطبيب المختص"))
-    pdf.cell(0, 10, footer_text, 0, 0, 'C')
+    pdf.cell(0, 10, "This report supports medical decisions and does not replace consultation with a physician.", 0, 0, 'C')
 
-    # --- Generate File ---
-    pdf_bytes = pdf.output(dest='S')  
+    pdf_bytes = pdf.output(dest='S')
     return bytes(pdf_bytes)
  
    
@@ -296,119 +235,97 @@ elif page == "تقييم خطر المريض | Patient Risk Assessment":
 
 # =================== PAGE 3: MEDICAL REPORT ===================
 elif page == "التقرير الطبي للمريض | Medical Report":
-    st.header("📄 التقرير الطبي للمريض | Patient Medical Report")
+    st.header("📄 Patient Medical Report")
 
-    with st.form("pdf_form"):
-        name = st.text_input("اسم المريض | Patient Name",
-                             value=st.session_state.get("home_name", ""))
-        age = st.number_input("العمر | Age", 1, 120,
-                              value=st.session_state.get("home_age", 35))
-        gender = st.selectbox(
-            "الجنس | Gender", ["ذكر | Male", "أنثى | Female"],
-            index=0 if st.session_state.get(
-                "home_gender", "ذكر | Male") == "ذكر | Male" else 1
-        )
-        weight = st.number_input(
-            "الوزن (كغ) | Weight (kg)", 1, 300, value=st.session_state.get("home_weight", 70))
-        height = st.number_input("الطول (سم) | Height (cm)", 50,
-                                 250, value=st.session_state.get("home_height", 170))
-        glucose = st.number_input("مستوى الجلوكوز | Glucose (mg/dL)", 50, 400,
-                                  value=st.session_state.get("home_glucose", 110))
-        hypertensive = st.selectbox(
-            "ارتفاع ضغط الدم | Hypertension", ["لا | No", "نعم | Yes"],
-            index=0 if st.session_state.get(
-                "home_hypertension", "لا | No") == "لا | No" else 1
-        )
-        family_diabetes = st.selectbox(
-            "تاريخ عائلي للسكري | Family Diabetes", ["لا | No", "نعم | Yes"],
-            index=0 if st.session_state.get(
-                "home_family_diabetes", "لا | No") == "لا | No" else 1
-        )
+    # =================== FORM ===================
+    with st.form("patient_form"):
+        name = st.text_input("Patient Name")
+        age = st.number_input("Age", 1, 120, 35)
+        gender = st.selectbox("Gender", ["Male", "Female"])
+        weight = st.number_input("Weight (kg)", 1, 300, 70)
+        height = st.number_input("Height (cm)", 50, 250, 170)
+        glucose = st.number_input("Glucose (mg/dL)", 50, 400, 110)
+        hypertensive = st.selectbox("Hypertension", ["No", "Yes"])
+        family_diabetes = st.selectbox("Family Diabetes", ["No", "Yes"])
 
-        save_button = st.form_submit_button(
-            "💾 حفظ وإنشاء التقرير | Save & Generate PDF")
+        submit = st.form_submit_button("💾 Save & Generate PDF")
 
-    if save_button:
-
+    # =================== AFTER FORM SUBMISSION ===================
+    if submit:
+        # Calculate BMI
         bmi = round(weight / ((height / 100) ** 2), 2)
 
+        # Prepare data for model
         new_data = pd.DataFrame({
             'age': [age],
-            'gender': [gender],
+            'gender': [1 if gender == "Male" else 0],
             'bmi': [bmi],
             'glucose': [glucose],
-            'family_diabetes': [1 if family_diabetes.endswith("Yes") else 0],
-            'hypertensive': [1 if hypertensive.endswith("Yes") else 0]
+            'family_diabetes': [1 if family_diabetes == "Yes" else 0],
+            'hypertensive': [1 if hypertensive == "Yes" else 0]
         })
 
-        # One-hot encoding
-        new_data = pd.get_dummies(new_data, drop_first=True)
-
-        # Add missing columns
         for col in model_columns:
             if col not in new_data.columns:
                 new_data[col] = 0
         new_data = new_data[model_columns]
 
-        # Scale and predict
+        # Predict
         new_data_scaled = scaler.transform(new_data)
         pred = model.predict(new_data_scaled)[0]
         prob = model.predict_proba(new_data_scaled)[0][1]
 
+        # Determine risk level and advice
         if prob < 0.33:
-            risk_level = "منخفض | Low"
-            advice = """
-✅ الحالة جيدة، استمر بالمراقبة الدورية لمستوى الجلوكوز كل 6 أشهر.
-✅ حافظ على وزن صحي ومستوى BMI مناسب.
-✅ اتبع نظام غذائي متوازن غني بالخضار والفواكه والحبوب الكاملة.
-✅ مارس النشاط البدني 30 دقيقة يوميًا على الأقل.
-✅ قلل السكريات المضافة والمشروبات الغازية.
-✅ تجنب التدخين والكحول.
-"""
+            risk_level = "Low"
+            advice = """✅ Keep monitoring glucose every 6 months
+✅ Maintain healthy BMI
+✅ Follow balanced diet
+✅ Exercise 30 min daily
+✅ Reduce added sugar
+✅ Avoid smoking and alcohol"""
         elif prob < 0.66:
-            risk_level = "متوسط | Medium"
-            advice = """
-⚠️ قياس السكر في الدم بانتظام، على الأقل مرة أسبوعيًا.
-⚠️ قلل الكربوهيدرات البسيطة (الخبز الأبيض، الحلويات).
-⚠️ زد من استهلاك البروتينات الصحية والخضروات الغنية بالألياف.
-⚠️ مارس الرياضة معتدلة الشدة 4-5 مرات أسبوعيًا.
-⚠️ راقب ضغط الدم والكوليسترول بانتظام.
-⚠️ استشر أخصائي تغذية لتخطيط نظام غذائي شخصي.
-"""
+            risk_level = "Medium"
+            advice = """⚠️ Check blood sugar regularly
+⚠️ Reduce simple carbs
+⚠️ Increase protein & fiber
+⚠️ Moderate exercise 4-5x/week
+⚠️ Monitor BP and cholesterol
+⚠️ Consult a nutritionist"""
         else:
-            risk_level = "مرتفع | High"
-            advice = """
-🚨 راجع طبيبك فورًا لإجراء فحوصات شاملة (سكر، HbA1c، ضغط الدم).
-🚨 ضع خطة علاجية مخصصة إذا تم تشخيصك بالسكري.
-🚨 قلل السكريات والكربوهيدرات المكررة بشكل صارم.
-🚨 مارس تمارين يومية معتدلة، وتجنب الخمول.
-🚨 حافظ على وزن صحي وقلل الدهون المشبعة.
-🚨 راقب الجلوكوز في الدم يوميًا إذا كنت مصابًا.
-🚨 التزم بالمواعيد الدورية للطبيب وأخصائي التغذية.
-"""
+            risk_level = "High"
+            advice = """🚨 See your doctor immediately
+🚨 Strict diabetic diet
+🚨 Daily glucose monitoring
+🚨 Regular exercise
+🚨 Maintain healthy weight
+🚨 Follow medical appointments"""
 
+        # Prepare patient info
         patient_info = {
-            "الاسم | Name": name,
-            "العمر | Age": age,
-            "الجنس | Gender": gender,
-            "الوزن | Weight": weight,
-            "الطول | Height": height,
+            "Name": name,
+            "Age": age,
+            "Gender": gender,
+            "Weight": weight,
+            "Height": height,
             "BMI": bmi,
-            "مستوى الجلوكوز | Glucose": glucose,
-            "مستوى الخطورة | Risk Level": risk_level
+            "Glucose": glucose,
+            "Risk Level": risk_level,
+            "Advice": advice
         }
 
-        pdf_bytes = generate_pdf({**patient_info, "التوصيات الطبية": advice})
-        st.success("تم تحميل تقريرك | Done Download Report")
-         
+        # Generate PDF
+        pdf_bytes = generate_pdf(patient_info)
 
+        st.success("✅ PDF Generated Successfully!")
+
+        # Download button outside form
         st.download_button(
-            "⬇️ تحميل التقرير | Download Report",
-            pdf_bytes,
+            label="⬇️ Download Report",
+            data=pdf_bytes,
             file_name=f"{name}_Medical_Report.pdf",
             mime="application/pdf"
-)
-
+        )
 
 
 
