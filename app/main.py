@@ -135,10 +135,20 @@ def generate_pdf(patient_info):
     pdf.set_y(-25)
     pdf.set_font("DejaVu", "", 8)
     pdf.set_text_color(150, 150, 150)
-    pdf.cell(0, 10, "This report supports medical decisions and does not replace consultation with a physician.", 0, 0, 'C')
-
+    pdf.cell(0, 10, "This report supports medical decisions and does not replace consultation with a physician.", 0, 0, 'C'
+             )
     pdf_bytes = pdf.output(dest='S')
-    return bytes(pdf_bytes)
+    if isinstance(pdf_bytes, str):
+        pdf_bytes = pdf_bytes.encode('latin-1')
+    elif isinstance(pdf_bytes, bytearray):
+        pdf_bytes = bytes(pdf_bytes)
+
+    return pdf_bytes
+
+
+
+
+
  
    
 
@@ -316,19 +326,15 @@ elif page == "التقرير الطبي للمريض | Medical Report":
 
         # Generate PDF
         pdf_bytes = generate_pdf(patient_info)
-
         st.success("✅ PDF Generated Successfully!")
-
+    
         # Download button outside form
         st.download_button(
-            label="⬇️ Download Report",
-            data=pdf_bytes,
-            file_name=f"{name}_Medical_Report.pdf",
-            mime="application/pdf"
-        )
-
-
-
+        label="⬇️ Download Report",
+        data=pdf_bytes,
+        file_name="medical_report.pdf",
+        mime="application/pdf"
+    )
 
 # =================== BATCH ANALYSIS ===================
 elif page == "التحليل الجماعي | Batch Analysis":
@@ -396,16 +402,17 @@ elif page == "التحليل الجماعي | Batch Analysis":
 
 # =================== MEDICAL IMAGE ANALYSIS ===================
 elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis":
+
     st.header("🧪 تشخيص السكري بناءً على الجلوكوز | Diabetes Diagnosis by Glucose")
 
     uploaded_file = st.file_uploader("اختر صورة الفحص | Upload Image", ["png", "jpg", "jpeg"])
 
     if uploaded_file:
-        # عرض الصورة
+        # View image
         image = Image.open(uploaded_file)
         st.image(image, use_container_width=True)
 
-        # حفظ الصورة مؤقتًا للـ OCR
+        # Temporarily save image for OCR
         with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
             image.save(tmp.name)
             img_path = tmp.name
@@ -414,7 +421,7 @@ elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis
         reader = easyocr.Reader(['ar', 'en'])
         results = reader.readtext(img_path)
 
-        # دمج كل النصوص
+       
         full_text = " ".join([r[1] for r in results])
 
         # -------------------Glucose extraction -------------------
