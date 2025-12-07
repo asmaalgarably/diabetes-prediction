@@ -29,7 +29,6 @@ logo_path1 = os.path.join(current_dir, "..", "image", "logo1.png")
 
 # Fonts
 font_path = os.path.join(current_dir, "Fonts", "DejaVuSans.ttf")
-
 # ------------------- Load Models -------------------
 with open(model_path, "rb") as f:
     model = pickle.load(f)
@@ -144,15 +143,6 @@ def generate_pdf(patient_info):
         pdf_bytes = bytes(pdf_bytes)
 
     return pdf_bytes
-
-
-
-
-
- 
-   
-
-
 # ------------------- Streamlit Page Config -------------------
 st.set_page_config(
     page_title="النظام الذكي لتقييم خطر الإصابة بالسكري | Smart Diabetes Risk Assessment",
@@ -211,9 +201,9 @@ elif page == "تقييم خطر المريض | Patient Risk Assessment":
             "العمر | Age", 1, 120, st.session_state.get("home_age", 35)
         )
         st.session_state.home_gender = st.selectbox(
-            "الجنس | Gender", ["ذكر | Male", "أنثى | Female"],
+            "الجنس | Gender", ["Male", "Female"],
             index=0 if st.session_state.get(
-                "home_gender", "ذكر | Male") == "ذكر | Male" else 1
+                "home_gender", "Male") == " Male" else 1
         )
         st.session_state.home_weight = st.number_input(
             "الوزن (كغ) | Weight (kg)", 1, 300, st.session_state.get(
@@ -242,37 +232,36 @@ elif page == "تقييم خطر المريض | Patient Risk Assessment":
 
     if save_btn:
         st.success("✅ تم حفظ البيانات! سيتم استخدامها في التقرير الطبي لاحقًا.")
-
 # =================== PAGE 3: MEDICAL REPORT ===================
 elif page == "التقرير الطبي للمريض | Medical Report":
     st.header("📄 Patient Medical Report")
 
     # =================== FORM ===================
     with st.form("patient_form"):
-        name = st.text_input("Patient Name")
-        age = st.number_input("Age", 1, 120, 35)
-        gender = st.selectbox("Gender", ["Male", "Female"])
-        weight = st.number_input("Weight (kg)", 1, 300, 70)
-        height = st.number_input("Height (cm)", 50, 250, 170)
-        glucose = st.number_input("Glucose (mg/dL)", 50, 400, 110)
-        hypertensive = st.selectbox("Hypertension", ["No", "Yes"])
-        family_diabetes = st.selectbox("Family Diabetes", ["No", "Yes"])
+        name = st.session_state.home_name
+        age = st.session_state.home_age
+        gender = st.session_state.home_gender
+        weight = st.session_state.home_weight
+        height = st.session_state.home_height
+        glucose = st.session_state.home_glucose
+        hypertensive = st.session_state.home_hypertension
+        family_diabetes = st.session_state.home_family_diabetes
 
         submit = st.form_submit_button("💾 Save & Generate PDF")
 
     # =================== AFTER FORM SUBMISSION ===================
     if submit:
-        # Calculate BMI
+        # ✅ Calculate BMI
         bmi = round(weight / ((height / 100) ** 2), 2)
 
-        # Prepare data for model
+        # ✅ Prepare data for model
         new_data = pd.DataFrame({
             'age': [age],
             'gender': [1 if gender == "Male" else 0],
             'bmi': [bmi],
             'glucose': [glucose],
-            'family_diabetes': [1 if family_diabetes == "Yes" else 0],
-            'hypertensive': [1 if hypertensive == "Yes" else 0]
+            'family_diabetes': [1 if family_diabetes == "Yes|نعم" else 0],
+            'hypertensive': [1 if hypertensive == "Yes|نعم" else 0]
         })
 
         for col in model_columns:
@@ -280,12 +269,12 @@ elif page == "التقرير الطبي للمريض | Medical Report":
                 new_data[col] = 0
         new_data = new_data[model_columns]
 
-        # Predict
+        # ✅ Predict
         new_data_scaled = scaler.transform(new_data)
         pred = model.predict(new_data_scaled)[0]
         prob = model.predict_proba(new_data_scaled)[0][1]
 
-        # Determine risk level and advice
+        # ✅ Determine risk level and advice
         if prob < 0.33:
             risk_level = "Low"
             advice = """✅ Keep monitoring glucose every 6 months
@@ -294,6 +283,7 @@ elif page == "التقرير الطبي للمريض | Medical Report":
 ✅ Exercise 30 min daily
 ✅ Reduce added sugar
 ✅ Avoid smoking and alcohol"""
+
         elif prob < 0.66:
             risk_level = "Medium"
             advice = """⚠️ Check blood sugar regularly
@@ -302,6 +292,7 @@ elif page == "التقرير الطبي للمريض | Medical Report":
 ⚠️ Moderate exercise 4-5x/week
 ⚠️ Monitor BP and cholesterol
 ⚠️ Consult a nutritionist"""
+
         else:
             risk_level = "High"
             advice = """🚨 See your doctor immediately
@@ -311,7 +302,7 @@ elif page == "التقرير الطبي للمريض | Medical Report":
 🚨 Maintain healthy weight
 🚨 Follow medical appointments"""
 
-        # Prepare patient info
+        # ✅ Prepare patient info
         patient_info = {
             "Name": name,
             "Age": age,
@@ -324,17 +315,22 @@ elif page == "التقرير الطبي للمريض | Medical Report":
             "Advice": advice
         }
 
-        # Generate PDF
+        # ✅ Generate PDF
         pdf_bytes = generate_pdf(patient_info)
+
+        # ✅ اسم الملف حسب الحالة
+        file_name = f"{risk_level}_Risk_Report.pdf"
+
         st.success("✅ PDF Generated Successfully!")
-    
-        # Download button outside form
+
+        # ✅ Download button
         st.download_button(
-        label="⬇️ Download Report",
-        data=pdf_bytes,
-        file_name="medical_report.pdf",
-        mime="application/pdf"
-    )
+            label="⬇️ Download Report",
+            data=pdf_bytes,
+            file_name=file_name,
+            mime="application/pdf"
+        )
+
 
 # =================== BATCH ANALYSIS ===================
 elif page == "التحليل الجماعي | Batch Analysis":
