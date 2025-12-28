@@ -1,4 +1,5 @@
-﻿import os
+﻿from fpdf import FPDF # تأكد أنك مثبت fpdf2 وليس fpdf القديمة
+import os
 import pickle
 import re
 import tempfile
@@ -12,7 +13,6 @@ import pandas as pd
 import pytesseract
 import streamlit as st
 from bidi.algorithm import get_display
-from fpdf import FPDF
 from PIL import Image
 
 # ------------------- Paths -------------------
@@ -59,27 +59,36 @@ reader = load_ocr_reader()
 
 
 def generate_pdf(patient_info):
+    # استخدام fpdf2 يسمح بتعامل أفضل مع الخطوط
     pdf = FPDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_font("DejaVu", "", font_path, uni=True)
-    pdf.add_font("DejaVu", "B", font_path, uni=True)
 
-    # Header
+    # إضافة الخطوط (في fpdf2 لا نحتاج uni=True)
+    pdf.add_font("DejaVu", "", font_path)
+    pdf.add_font("DejaVu", "B", font_path)
+
+    # دالة مساعدة لمعالجة النصوص العربية إذا وجدت
+    def fix_text(text):
+        if not text:
+            return ""
+        # استخدام المكتبات التي استدعيناها سابقاً لترتيب النص العربي
+        reshaped = arabic_reshaper.reshape(str(text))
+        return get_display(reshaped)
+
+    # --- Header ---
     pdf.set_font("DejaVu", "", 9)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 10, "Smart Diabetes Risk Assessment System", 0, 1, 'C')
     pdf.set_text_color(0, 0, 0)
 
-    # Logo
+    # --- Logo ---
     if os.path.exists(logo_path1):
-        logo_width = 60
-        page_width = pdf.w - 2 * pdf.l_margin
-        x_center = (page_width - logo_width) / 2 + pdf.l_margin
-        pdf.image(logo_path1, x=x_center, y=25, w=logo_width)
+        # وضع اللوجو في المنتصف
+        pdf.image(logo_path1, x=75, y=25, w=60)
         pdf.ln(50)
 
-    # Main Title
+    # --- Main Title ---
     pdf.set_font("DejaVu", "B", 18)
     pdf.cell(0, 10, "Patient Medical Report", 0, 1, 'C')
     pdf.ln(5)
@@ -88,13 +97,15 @@ def generate_pdf(patient_info):
     pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
     pdf.ln(10)
 
-    # Basic Patient Info
+    # --- Basic Patient Info ---
     pdf.set_font("DejaVu", "B", 14)
     pdf.cell(0, 10, "Basic Patient Info", 0, 1, 'L')
     pdf.ln(3)
     pdf.set_font("DejaVu", "", 12)
+
+    # لاحظ استخدام fix_text هنا لدعم الأسماء العربية
     basic_data = {
-        "Name": patient_info.get("Name", ""),
+        "Name": fix_text(patient_info.get("Name", "")),
         "Age": patient_info.get("Age", ""),
         "Gender": patient_info.get("Gender", "")
     }
@@ -103,7 +114,7 @@ def generate_pdf(patient_info):
         pdf.cell(0, 8, str(value), 1, 1, 'L')
     pdf.ln(10)
 
-    # Clinical Data
+    # --- Clinical Data ---
     pdf.set_font("DejaVu", "B", 14)
     pdf.cell(0, 10, "Clinical Data", 0, 1, 'L')
     pdf.ln(3)
@@ -119,7 +130,7 @@ def generate_pdf(patient_info):
         pdf.cell(0, 8, str(value), 1, 1, 'L')
     pdf.ln(10)
 
-    # Risk Level
+    # --- Risk Level ---
     pdf.set_font("DejaVu", "B", 14)
     pdf.cell(0, 10, "Risk Level", 0, 1, 'L')
     pdf.ln(3)
@@ -130,12 +141,13 @@ def generate_pdf(patient_info):
         pdf.set_text_color(255, 140, 0)
     else:
         pdf.set_text_color(220, 20, 60)
+
     pdf.set_font("DejaVu", "B", 16)
     pdf.cell(0, 10, risk_level, 0, 1, 'C')
     pdf.set_text_color(0, 0, 0)
     pdf.ln(10)
 
-    # Medical Recommendations
+    # --- Medical Recommendations ---
     pdf.set_font("DejaVu", "B", 14)
     pdf.cell(0, 10, "Medical Recommendations", 0, 1, 'L')
     pdf.ln(5)
@@ -144,20 +156,16 @@ def generate_pdf(patient_info):
     pdf.multi_cell(0, 8, advice)
     pdf.ln(5)
 
-    # Footer
+    # --- Footer ---
     pdf.set_y(-25)
     pdf.set_font("DejaVu", "", 8)
     pdf.set_text_color(150, 150, 150)
-    pdf.cell(0, 10, "This report supports medical decisions and does not replace consultation with a physician.", 0, 0, 'C'
-             )
-    pdf_bytes = pdf.output(dest='S')
-    if isinstance(pdf_bytes, str):
-        pdf_bytes = pdf_bytes.encode('latin-1')
-    elif isinstance(pdf_bytes, bytearray):
-        pdf_bytes = bytes(pdf_bytes)
+    pdf.cell(0, 10, "This report supports medical decisions and does not replace consultation with a physician.", 0, 0, 'C')
 
-    return pdf_bytes
-
+    # --- الإصلاح الجوهري هنا ---
+    # في fpdf2، الإخراج الافتراضي عند عدم وضع مسار هو bytearray (Bytes)
+    pdf_output= pdf.output()
+    return bytes(pdf_output)
 
 # ------------------- Streamlit Page Config -------------------
 st.set_page_config(
