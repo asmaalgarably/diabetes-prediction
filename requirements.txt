@@ -3,7 +3,7 @@ pandas
 numpy
 matplotlib
 pillow
-fpdf
+fpdf2
 arabic_reshaper
 python-bidi
 pytesseract
