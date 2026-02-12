@@ -5,7 +5,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import confusion_matrix, accuracy_score, classification_report
 from imblearn.over_sampling import SMOTE
 import pickle
-
+import matplotlib.pyplot as plt
+import seaborn as sns
 # ------------------------- Read the dataset -------------------------
 data = pd.read_csv(
     r'C:\Users\ACER\Desktop\diabetes_binary\dataset\DiaBD_A Diabetes Dataset for Enhanced Risk Analysis and Research in Bangladesh.csv'
@@ -78,8 +79,8 @@ with open('models/rf_columns.pkl', 'wb') as f:
 new_data = pd.DataFrame({
     'age': [50, 35],
     'gender': ['Male', 'Female'],
-    'weight': [70, 50],     
-    'height': [170, 160],     
+    'weight': [70, 50],
+    'height': [170, 160],
     'glucose': [140, 110],
     'family_diabetes': [0, 1],
     'hypertensive': [0, 0]
@@ -117,3 +118,22 @@ result = pd.DataFrame({
 
 print("\nPrediction results on new data:")
 print(result)
+cm = confusion_matrix(y_test, y_pred)
+
+# 2. إعداد الرسم البياني
+plt.figure(figsize=(8, 6))
+sns.set(font_scale=1.2)   
+
+# رسم المصفوفة باستخدام Heatmap
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=['Not Diabetic', 'Diabetic'],
+            yticklabels=['Not Diabetic', 'Diabetic'])
+
+# إضافة العناوين
+plt.xlabel('Predicted Label (توقع النظام)')
+plt.ylabel('True Label (الحالة الحقيقية)')
+plt.title('Confusion Matrix - Diabetes Prediction Model')
+
+# حفظ الصورة لاستخدامها في المشروع
+plt.savefig('confusion_matrix.png', dpi=300)
+plt.show()

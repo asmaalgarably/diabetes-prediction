@@ -1,27 +1,118 @@
-﻿from fpdf import FPDF # تأكد أنك مثبت fpdf2 وليس fpdf القديمة
-import os
+﻿import os
 import pickle
 import re
 import tempfile
-from io import BytesIO
-
+import warnings
 import arabic_reshaper
 import easyocr
+import google.generativeai as genai
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import pytesseract
+import requests
+import seaborn as sns
 import streamlit as st
 from bidi.algorithm import get_display
+from fpdf import FPDF
 from PIL import Image
 
-# ------------------- Paths -------------------
-current_dir = os.path.dirname(__file__)
+warnings.filterwarnings("ignore", category=FutureWarning)
+api_key = st.secrets.get("GEMINI_API_KEY") or st.secrets.get(
+    "\ufeffGEMINI_API_KEY")
+genai.configure(api_key=api_key)
+ai_model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
 
-# Models
+ 
+
+
+# ------------------- 1.Comprehensive Linguistic Dictionary-------------------
+languages = {
+    "العربية": {
+        "dir": "ltr",
+        "nav_title": "لوحة التحكم",
+        "nav_page": "اختر الصفحة",
+        "home": "الصفحة الرئيسية",
+        "risk": "تقييم خطر المريض",
+        "report": "التقرير الطبي",
+        "batch": "التحليل الجماعي",
+        "image": "تحليل الصور (OCR)",
+        "ai": "المساعد الطبي الذكي",
+        "hero_title": "Smart Diabetes AI",
+        "ai_title": "مستشار DiaVision للذكاء الاصطناعي",
+        "hero_subtitle": "النظام الذكي المتكامل للوقاية من السكري",
+        "hero_desc": "نجمع بين دقة البيانات وقوة الذكاء الاصطناعي لنقدم لك تحليلاً طبياً استباقياً يساعدك في اتخاذ قراراتك الصحية بثقة.",
+        "f1_t": "تنبؤ دقيق", "f1_d": "تحليل المخاطر باستخدام خوارزميات متقدمة.",
+        "f2_t": "تقارير شاملة", "f2_d": "توليد ملفات PDF تحتوي على كافة التفاصيل.",
+        "f3_t": "قراءة الصور", "f3_d": "استخراج النتائج من صور الفحوصات الطبية.",
+        "f4_t": "تحليل الدفعات", "f4_d": "معالجة بيانات مجموعة مرضى دفعة واحدة.",
+        "form_h": "🧑‍⚕️ نموذج تقييم بيانات المريض",
+        "form_p": "يرجى إدخال البيانات الحيوية بدقة لضمان دقة التنبؤ",
+        "l_name": "اسم المريض بالكامل", "l_age": "العمر (سنة)", "l_gender": "الجنس",
+        "l_glucose": "مستوى الجلوكوز (mg/dL)", "l_weight": "الوزن (كجم)", "l_height": "الطول (سم)",
+        "l_hyper": "هل يعاني من ضغط الدم؟", "l_family": "تاريخ عائلي للسكري؟",
+        "btn_save": "💾 حفظ البيانات وتحليلها",
+        "rep_title": "🏥 لوحة تشخيص حالة المريض",
+        "risk_level": "مستوى الخطورة", "prob": "احتمالية الإصابة",
+        "advice_title": "📋 التوصيات الطبية المخصصة",
+        "low": "منخفض", "med": "متوسط", "high": "مرتفع",
+        "btn_pdf": "📥 تحميل التقرير الطبي الكامل (PDF)",
+        "ocr_h": "🧪 المختبر الذكي | AI Image Lab",
+        "ocr_btn": "📝 استخدام هذه القيمة في التقييم",
+        "batch_h": "📊 تحليل بيانات المجموعة",
+        "gender_m": "ذكر", "gender_f": "أنثى",
+        "yes": "نعم", "no": "لا",
+        "success": "تم تحديث البيانات بنجاح!" ,
+        "info": "يمكنك الآن الانتقال لصفحة التقرير"
+      
+    },
+    "English": {
+        "dir": "ltr",
+        "nav_title": "Control Panel",
+        "nav_page": "Navigation",
+        "home": "Home Page",
+        "risk": "Risk Assessment",
+        "report": "Medical Report",
+        "batch": "Batch Analysis",
+        "image": "Image Analysis (OCR)",
+        "ai": "AI Medical Assistant",
+        "ai_title": "DiaVision AI Consultant",
+        "hero_title": "Smart Diabetes AI",
+        "hero_subtitle": "Integrated Smart System for Diabetes Prevention",
+        "hero_desc": "We combine data accuracy with AI power to provide proactive medical analysis.",
+        "f1_t": "AI Prediction", "f1_d": "Risk analysis using advanced algorithms.",
+        "f2_t": "Comprehensive Reports", "f2_d": "Generate PDF files with full details.",
+        "f3_t": "Medical OCR", "f3_d": "Extract results from medical test images.",
+        "f4_t": "Batch Processing", "f4_d": "Process multiple patient data at once.",
+        "form_h": "🧑‍⚕️ Patient Assessment Form",
+        "form_p": "Please enter vital data accurately",
+        "l_name": "Full Patient Name", "l_age": "Age (Years)", "l_gender": "Gender",
+        "l_glucose": "Glucose Level (mg/dL)", "l_weight": "Weight (kg)", "l_height": "Height (cm)",
+        "l_hyper": "Hypertension?", "l_family": "Family History?",
+        "btn_save": "💾 Save & Analyze",
+        "rep_title": "🏥 Medical Dashboard",
+        "risk_level": "Risk Level", "prob": "Probability",
+        "advice_title": "📋 Custom Recommendations",
+        "low": "Low", "med": "Medium", "high": "High",
+        "btn_pdf": "📥 Download PDF Report",
+        "ocr_h": "🧪 AI Image Lab",
+        "ocr_btn": "📝 Apply to Assessment",
+        "batch_h": "📊 Batch Data Analysis",
+        "gender_m": "Male", "gender_f": "Female",
+        "yes": "Yes", "no": "No",
+          "success": "Data updated successfully!",
+          "info": "You can now view the report",
+    }
+}
+
+# ------------------- 2.Settings and download-------------------
+st.set_page_config(page_title="Smart Diabetes AI", layout="wide", page_icon="💉")
+
+# مسارات الملفات 
+current_dir = os.path.dirname(__file__)
 model_path = os.path.join(current_dir, "..", "models", "rf_diabetes_model.pkl")
 scaler_path = os.path.join(current_dir, "..", "models", "rf_scaler.pkl")
 columns_path = os.path.join(current_dir, "..", "models", "rf_columns.pkl")
+
 
 # Images
 logo_path = os.path.join(current_dir, "..", "image", "logo.png")
@@ -29,551 +120,567 @@ logo_path1 = os.path.join(current_dir, "..", "image", "logo1.png")
 
 # Fonts
 font_path = os.path.join(current_dir, "Fonts", "DejaVuSans.ttf")
-# ------------------- Load Models -------------------
-with open(model_path, "rb") as f:
-    model = pickle.load(f)
-
-with open(scaler_path, "rb") as f:
-    scaler = pickle.load(f)
-
-with open(columns_path, "rb") as f:
-    model_columns = pickle.load(f)
-
-# ------------------- Session State -------------------
-if "saved_advice" not in st.session_state:
-    st.session_state.saved_advice = ""
-
-# ------------------- PDF Functions -------------------
-
-
-# 2. تعريف دالة التحميل مع التخزين المؤقت للسرعة
 
 @st.cache_resource
-def load_ocr_reader():
-    # التحميل يتم مرة واحدة فقط عند تشغيل التطبيق
-    return easyocr.Reader(['ar', 'en'], gpu=False)
+def load_assets():
+    with open(model_path, "rb") as f: m = pickle.load(f)
+    with open(scaler_path, "rb") as f: s = pickle.load(f)
+    with open(columns_path, "rb") as f: c = pickle.load(f)
+    reader = easyocr.Reader(['ar', 'en'], gpu=False)
+    return m, s, c, reader
 
+try:
+    model, scaler, model_columns, reader = load_assets()
+except:
+    st.error("⚠️ Model files not found!")
+    st.stop()
 
-# 3. تعريف المتغير 'reader' بشكل عالمي (Global)
-reader = load_ocr_reader()
+# ------------------- 3. Side menu-------------------
 
+lang_choice = st.sidebar.selectbox(
+    "Language | اللغة", ["العربية", "English"], key="global_lang_sel")
+t = languages[lang_choice]
 
-def generate_pdf(patient_info):
-    # استخدام fpdf2 يسمح بتعامل أفضل مع الخطوط
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
+if "nav_idx" not in st.session_state:
+    st.session_state.nav_idx = 0
 
-    # إضافة الخطوط (في fpdf2 لا نحتاج uni=True)
-    pdf.add_font("DejaVu", "", font_path)
-    pdf.add_font("DejaVu", "B", font_path)
+menu_options = [t["home"], t["risk"],
+                t["report"], t["batch"], t["image"], t["ai"]]
 
-    # دالة مساعدة لمعالجة النصوص العربية إذا وجدت
-    def fix_text(text):
-        if not text:
-            return ""
-        # استخدام المكتبات التي استدعيناها سابقاً لترتيب النص العربي
-        reshaped = arabic_reshaper.reshape(str(text))
-        return get_display(reshaped)
-
-    # --- Header ---
-    pdf.set_font("DejaVu", "", 9)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 10, "Smart Diabetes Risk Assessment System", 0, 1, 'C')
-    pdf.set_text_color(0, 0, 0)
-
-    # --- Logo ---
-    if os.path.exists(logo_path1):
-        # وضع اللوجو في المنتصف
-        pdf.image(logo_path1, x=75, y=25, w=60)
-        pdf.ln(50)
-
-    # --- Main Title ---
-    pdf.set_font("DejaVu", "B", 18)
-    pdf.cell(0, 10, "Patient Medical Report", 0, 1, 'C')
-    pdf.ln(5)
-    pdf.set_line_width(0.5)
-    pdf.set_draw_color(200, 200, 200)
-    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
-    pdf.ln(10)
-
-    # --- Basic Patient Info ---
-    pdf.set_font("DejaVu", "B", 14)
-    pdf.cell(0, 10, "Basic Patient Info", 0, 1, 'L')
-    pdf.ln(3)
-    pdf.set_font("DejaVu", "", 12)
-
-    # لاحظ استخدام fix_text هنا لدعم الأسماء العربية
-    basic_data = {
-        "Name": fix_text(patient_info.get("Name", "")),
-        "Age": patient_info.get("Age", ""),
-        "Gender": patient_info.get("Gender", "")
-    }
-    for key, value in basic_data.items():
-        pdf.cell(60, 8, str(key), 1, 0, 'L')
-        pdf.cell(0, 8, str(value), 1, 1, 'L')
-    pdf.ln(10)
-
-    # --- Clinical Data ---
-    pdf.set_font("DejaVu", "B", 14)
-    pdf.cell(0, 10, "Clinical Data", 0, 1, 'L')
-    pdf.ln(3)
-    pdf.set_font("DejaVu", "", 12)
-    clinical_data = {
-        "Weight (kg)": patient_info.get("Weight", ""),
-        "Height (cm)": patient_info.get("Height", ""),
-        "BMI": patient_info.get("BMI", ""),
-        "Glucose (mg/dL)": patient_info.get("Glucose", "")
-    }
-    for key, value in clinical_data.items():
-        pdf.cell(60, 8, str(key), 1, 0, 'L')
-        pdf.cell(0, 8, str(value), 1, 1, 'L')
-    pdf.ln(10)
-
-    # --- Risk Level ---
-    pdf.set_font("DejaVu", "B", 14)
-    pdf.cell(0, 10, "Risk Level", 0, 1, 'L')
-    pdf.ln(3)
-    risk_level = patient_info.get("Risk Level", "")
-    if "Low" in risk_level:
-        pdf.set_text_color(0, 128, 0)
-    elif "Medium" in risk_level:
-        pdf.set_text_color(255, 140, 0)
-    else:
-        pdf.set_text_color(220, 20, 60)
-
-    pdf.set_font("DejaVu", "B", 16)
-    pdf.cell(0, 10, risk_level, 0, 1, 'C')
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(10)
-
-    # --- Medical Recommendations ---
-    pdf.set_font("DejaVu", "B", 14)
-    pdf.cell(0, 10, "Medical Recommendations", 0, 1, 'L')
-    pdf.ln(5)
-    pdf.set_font("DejaVu", "", 11)
-    advice = patient_info.get("Advice", "")
-    pdf.multi_cell(0, 8, advice)
-    pdf.ln(5)
-
-    # --- Footer ---
-    pdf.set_y(-25)
-    pdf.set_font("DejaVu", "", 8)
-    pdf.set_text_color(150, 150, 150)
-    pdf.cell(0, 10, "This report supports medical decisions and does not replace consultation with a physician.", 0, 0, 'C')
-
-    # --- الإصلاح الجوهري هنا ---
-    # في fpdf2، الإخراج الافتراضي عند عدم وضع مسار هو bytearray (Bytes)
-    pdf_output= pdf.output()
-    return bytes(pdf_output)
-
-# ------------------- Streamlit Page Config -------------------
-st.set_page_config(
-    page_title="النظام الذكي لتقييم خطر الإصابة بالسكري | Smart Diabetes Risk Assessment",
-    layout="wide",
-    page_icon="💉"
+page = st.sidebar.radio(
+    t["nav_page"],
+    menu_options,
+    index=st.session_state.nav_idx
 )
-st.markdown("""
+
+st.session_state.nav_idx = menu_options.index(page)
+# ------------------- 4.(CSS) -------------------
+st.markdown(f"""
     <style>
-    /* تحسين الخطوط والخلفية */
     @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    .stApp {{ background-color: #0b0e14; font-family: 'Cairo', sans-serif; direction: {t['dir']}; }}
     
-    .stApp { background-color: #0b0e14; }
-
-    /* الهيدر الرئيسي بتأثير زجاجي متطور */
-    .hero-gradient {
+    .hero-gradient {{
         background: linear-gradient(135deg, rgba(30, 58, 138, 0.9) 0%, rgba(59, 130, 246, 0.8) 100%);
-        padding: 60px 20px;
-        border-radius: 30px;
-        text-align: center;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        margin-bottom: 50px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.4);
-    }
+        padding: 60px 20px; border-radius: 30px; text-align: center; margin-bottom: 50px;
+    }}
 
-    /* كروت الخدمات مع إضاءة علوية */
-    .feature-card-modern {
-        background: #161b22;
-        padding: 30px;
-        border-radius: 20px;
+    .feature-card {{
+        background: #161b22; 
+        padding: 30px; 
+        border-radius: 20px 20px 0 0; 
         border: 1px solid #30363d;
-        border-top: 4px solid #3b82f6; /* خط علوي ملون */
-        text-align: center;
-        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        height: 100%;
-    }
-    .feature-card-modern:hover {
-        transform: translateY(-12px);
-        box-shadow: 0 15px 30px rgba(59, 130, 246, 0.2);
-        border-color: #3b82f6;
-    }
-
-    .icon-circle {
-        width: 70px;
-        height: 70px;
-        background: rgba(59, 130, 246, 0.1);
-        border-radius: 50%;
+        border-top: 4px solid #3b82f6; 
+        text-align: center; 
+        transition: 0.4s;
+        min-height: 280px; 
         display: flex;
-        align-items: center;
+        flex-direction: column;
         justify-content: center;
-        margin: 0 auto 20px;
-        font-size: 30px;
-    }
+        align-items: center;
+        margin-bottom: 0px; 
+    }}
 
-    /* تنسيق حاوية النموذج */
-    .form-container {
-        background: #161b22;
-        padding: 30px;
-        border-radius: 20px;
-        border: 1px solid #30363d;
-        margin-top: 20px;
-    }
-    /* جعل العناوين الجانبية للمدخلات أوضح */
-    label {
-        color: #58a6ff !important;
-        font-weight: bold !important;
-    }
+    .stButton>button {{
+    width: 100%;
+        border-radius: 0 0 20px 20px !important; 
+        /* تدرج لوني أزرق فخم */
+        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%) !important;
+        color: white !important;
+        border: none !important;
+        height: 55px;
+        font-size: 1.1rem !important;
+        font-weight: 700 !important;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        transition: all 0.4s ease !important;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2) !important;
+    }}
+    
+    .stButton>button:hover {{
+        / * تغيير التدرج وزيادة الإضاءة عند التمرير * /
+    background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%) !important;
+        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4) !important;
+        transform: translateY(-2px) !important;
+        color: #ffffff !important;
+    }}
 
-    .feature-title { color: #58a6ff; font-weight: bold; margin-bottom: 10px; }
-    .feature-desc { color: #8b949e; font-size: 0.9rem; line-height: 1.5; }
+    .stButton>button:active {{
+    transform: translateY(1px) !important;
+    }}
+
+    .feature-card:hover {{ transform: translateY(-5px); border-color: #3b82f6; }}
     </style>
     """, unsafe_allow_html=True)
 
-st.sidebar.title("لوحة التحكم | Control Panel")
-page = st.sidebar.radio(
-    "اختر الصفحة | Select Page", [
-        "الصفحة الرئيسية | Home",
-        "تقييم خطر المريض | Patient Risk Assessment",
-        "التقرير الطبي للمريض | Medical Report",
-        "التحليل الجماعي | Batch Analysis",
-        "تحليل صورة الفحص الطبي | Medical Image Analysis"
-    ]
-)
+# generate_pdf
+def generate_pdf(patient_info, weekly_plan):
+    pdf = FPDF()
+    pdf.add_page()
 
-# =================== HOME PAGE ===================
-if page == "الصفحة الرئيسية | Home":
-    # عرض اللوجو بشكل أنيق
+ 
+    pdf.set_left_margin(15)
+    pdf.set_right_margin(15)
+    effective_width = pdf.w - 30  
+
+    pdf.add_font("DejaVu", "", font_path)
+    pdf.add_font("DejaVu", "B", font_path)
+
+    def fix_text(text):
+        if not text:
+            return ""
+        reshaped = arabic_reshaper.reshape(str(text))
+        return get_display(reshaped)
+
+    # --- 1.  (Logo) ---
+    if os.path.exists(logo_path1):
+        
+        pdf.image(logo_path1, x=(pdf.w - 40) / 2, y=10, w=40)
+        pdf.ln(35)
+    else:
+        pdf.ln(10)
+
+    # --- 2. Main Title---
+    pdf.set_font("DejaVu", "B", 18)
+    title = "Medical Report | تقرير طبي"
+    pdf.cell(effective_width, 10, fix_text(title), 0, 1, 'C')
+    pdf.ln(5)
+
+    # --- 3. Basic Patient Information ---
+    pdf.set_font("DejaVu", "", 12)
+    for key, val in patient_info.items():
+        if key != "Advice":
+            label = fix_text(f"{key}:")
+            value = fix_text(val)
+           
+            pdf.cell(effective_width * 0.3, 10, label, 1, 0,
+                     'R' if lang_choice == "العربية" else 'L')
+            pdf.cell(effective_width * 0.7, 10, value, 1, 1,
+                     'R' if lang_choice == "العربية" else 'L')
+
+    # --- 4. Proposed weekly schedule---
+    pdf.ln(10)
+    pdf.set_font("DejaVu", "B", 14)
+    pdf.cell(effective_width, 10, fix_text("Weekly Plan | الخطة الأسبوعية"),
+             0, 1, 'R' if lang_choice == "العربية" else 'L')
+
+    pdf.set_font("DejaVu", "", 10)
+    pdf.set_fill_color(240, 240, 240)
+
+    day_w = effective_width * 0.25
+    plan_w = effective_width * 0.75
+
+    if lang_choice == "العربية":
+        pdf.cell(plan_w, 10, fix_text("النشاط"), 1, 0, 'C', True)
+        pdf.cell(day_w, 10, fix_text("اليوم"), 1, 1, 'C', True)
+        for day, plan in weekly_plan.items():
+            pdf.cell(plan_w, 10, fix_text(plan), 1, 0, 'R')
+            pdf.cell(day_w, 10, fix_text(day), 1, 1, 'R')
+    else:
+        pdf.cell(day_w, 10, fix_text("Day"), 1, 0, 'C', True)
+        pdf.cell(plan_w, 10, fix_text("Activity"), 1, 1, 'C', True)
+        for day, plan in weekly_plan.items():
+            pdf.cell(day_w, 10, fix_text(day), 1, 0, 'L')
+            pdf.cell(plan_w, 10, fix_text(plan), 1, 1, 'L')
+
+    # --- 5.General advice  ---
+ 
+    pdf.ln(10)
+    pdf.set_font("DejaVu", "B", 14)
+    
+    pdf.cell(effective_width, 10, fix_text(
+        t['advice_title']), 0, 1, 'R' if lang_choice == "العربية" else 'L')
+
+    pdf.set_font("DejaVu", "", 11)
+
+    advice_data = patient_info.get("Advice", [])
+
+ 
+    for item in advice_data:
+       
+        clean_item = fix_text(item)
+ 
+        pdf.multi_cell(effective_width, 8, clean_item, border=0,
+                       align='R' if lang_choice == "العربية" else 'L')
+
+       
+        pdf.ln(2)
+
+    return bytes(pdf.output())
+# ------------------- 6. Pages -------------------
+
+
+if page == t["home"]:
+  
     if os.path.exists(logo_path):
-        st.columns([1, 1.2, 1])[1].image(logo_path, use_container_width=True)
+        st.columns([1, 1, 1])[1].image(logo_path, width='stretch')
 
-    # قسم الترحيب الرئيسي
-    st.markdown("""
+    st.markdown(f"""
         <div class="hero-gradient">
-            <h1 style="font-family: 'Cairo', sans-serif; font-size: 3.5rem; margin-bottom: 0;">Smart Diabetes AI</h1>
-            <p style="font-size: 1.4rem; font-weight: 300; letter-spacing: 1px;">النظام الذكي المتكامل للوقاية من السكري</p>
-            <div style="width: 100px; height: 3px; background: #58a6ff; margin: 20px auto;"></div>
-            <p style="font-size: 1rem; opacity: 0.8; max-width: 700px; margin: 0 auto;">
-                نجمع بين دقة البيانات وقوة الذكاء الاصطناعي لنقدم لك تحليلاً طبياً استباقياً يساعدك في اتخاذ قراراتك الصحية بثقة.
-            </p>
+            <h1 style="font-size: 3.5rem; color: white; margin:0;">{t['hero_title']}</h1>
+            <p style="font-size: 1.4rem; color: #e6edf3; margin-top:10px;">{t['hero_subtitle']}</p>
         </div>
     """, unsafe_allow_html=True)
 
-    # عرض المميزات في شبكة احترافية
-    st.markdown("<h3 style='text-align: center; color: white; margin-bottom: 40px;'>مميزات المنصة | Platform Features</h3>", unsafe_allow_html=True)
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    features = [
-        {"icon": "🧬", "title": "تنبؤ دقيق", "title_en": "AI Prediction",
-            "desc": "تحليل المخاطر باستخدام خوارزميات متقدمة."},
-        {"icon": "📋", "title": "تقارير شاملة", "title_en": "Medical Reports",
-            "desc": "توليد ملفات PDF تحتوي على كافة التفاصيل."},
-        {"icon": "🔍", "title": "قراءة الصور", "title_en": "Medical OCR",
-            "desc": "استخراج النتائج من صور الفحوصات الطبية."},
-        {"icon": "📊", "title": "تحليل الدفعات", "title_en": "Batch Analysis",
-            "desc": "معالجة بيانات مجموعة مرضى دفعة واحدة."}
+  
+    feats = [
+        ("🧬", t["f1_t"], t["f1_d"], 1),  # 1 (Risk)
+        ("📋", t["f2_t"], t["f2_d"], 2),  # 2 (Report)
+        ("🔍", t["f3_t"], t["f3_d"], 4),  # 4 (OCR)
+        ("📊", t["f4_t"], t["f4_d"], 3),  # 3 (Batch)
+        ("🩺", t["ai_title"], "Assistant", 5) # 5 (AI)
     ]
 
-    cols = [col1, col2, col3, col4]
-    for i, f in enumerate(features):
-        with cols[i]:
-            st.markdown(f"""
-                <div class="feature-card-modern">
-                    <div class="icon-circle">{f['icon']}</div>
-                    <div class="feature-title">{f['title']}</div>
-                    <div style="color: white; font-size: 0.8rem; opacity: 0.6; margin-bottom: 10px;">{f['title_en']}</div>
-                    <p class="feature-desc">{f['desc']}</p>
-                </div>
-            """, unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    row1_cols = [c1, c2, c3]
+    for i in range(3):
+        with row1_cols[i]:
+            st.markdown(f"""<div class="feature-card"><h3>{feats[i][0]}</h3>
+                        <h4 style="color:#58a6ff;">{feats[i][1]}</h4>
+                        <p style="color:#8b949e; font-size:0.85rem;">{feats[i][2]}</p></div>""", unsafe_allow_html=True)
 
-    # تذييل الصفحة وتنبيه الطبي
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.error("⚠️ **ملاحظة هامة:** النتائج المقدمة من النظام هي لغرض الدعم المعلوماتي فقط ولا تعتبر تشخيصاً نهائياً. يرجى دائماً استشارة الطبيب المختص.")
+           
+            if st.button(f"{'دخول' if lang_choice == 'العربية' else 'Enter'}", key=f"btn_nav_{i}"):
+                st.session_state.nav_idx = feats[i][3]  
+                st.rerun()  
 
+    st.markdown("<br>", unsafe_allow_html=True)
+ 
+    _, c4, c5, _ = st.columns([0.5, 1, 1, 0.5])
+    row2_cols = [c4, c5]
+    for i in range(3, 5):
+        with row2_cols[i-3]:
+            st.markdown(f"""<div class="feature-card"><h3>{feats[i][0]}</h3>
+                        <h4 style="color:#58a6ff;">{feats[i][1]}</h4>
+                        <p style="color:#8b949e; font-size:0.85rem;">{feats[i][2]}</p></div>""", unsafe_allow_html=True)
+
+            if st.button(f"{'دخول' if lang_choice == 'العربية' else 'Enter'}", key=f"btn_nav_{i}"):
+                st.session_state.nav_idx = feats[i][3]   
+                st.rerun()
+            
 # =================== PAGE 2: PATIENT RISK ASSESSMENT ===================
-# --- صفحة تقييم خطر المريض المحدثة ---
-elif page == "تقييم خطر المريض | Patient Risk Assessment":
-    st.markdown("""
+elif page == t["risk"]:
+    def handle_transition():
+        st.session_state.page = t["report"]
+        st.session_state.form_submitted = False  
+
+    st.markdown(f"""
         <div style="text-align: center; margin-bottom: 25px;">
-            <h2 style="color: #3b82f6; font-family: 'Cairo', sans-serif;">🧑‍⚕️ نموذج تقييم بيانات المريض</h2>
-            <p style="color: #8b949e;">يرجى إدخال البيانات الحيوية بدقة لضمان دقة التنبؤ</p>
+            <h2 style="color: #3b82f6; font-family: 'Cairo', sans-serif;">{t['form_h']}</h2>
+            <p style="color: #8b949e;">{t['form_p']}</p>
         </div>
     """, unsafe_allow_html=True)
 
     with st.form("patient_form_modern"):
-        # الجزء الأول: المعلومات الشخصية
         col1, col2 = st.columns(2)
-        with col1:
-            name = st.text_input("اسم المريض بالكامل",
-                                 value=st.session_state.get("home_name", ""))
 
-            # التأكد من أن العمر رقم صحيح (int)
-            age_val = int(st.session_state.get("home_age", 35))
-            age = st.number_input("العمر (سنة)", min_value=1,
-                                  max_value=120, value=age_val)
+        with col1:
+            name = st.text_input(t["l_name"], placeholder="John Doe")
+            age = st.number_input(
+                t["l_age"], min_value=1, max_value=120, value=30)
+            gender = st.selectbox(
+                t["l_gender"], [t["gender_m"], t["gender_f"]])
+             
+            if "home_glucose" not in st.session_state:
+                st.session_state["home_glucose"] = 100.0
+
+            
+            glucose = st.number_input(
+                t["l_glucose"],
+                min_value=40.0,
+                max_value=500.0,
+                value=float(st.session_state["home_glucose"]), 
+                key="risk_glucose_master" 
+)
 
         with col2:
-            gender = st.selectbox("الجنس", ["Male", "Female"],
-                                  index=0 if st.session_state.get("home_gender") == "Male" else 1)
+            weight = st.number_input(
+                t["l_weight"], min_value=10.0, max_value=250.0, value=70.0)
+            height = st.number_input(
+                t["l_height"], min_value=50.0, max_value=250.0, value=170.0)
+            hyper = st.selectbox(t["l_hyper"], [t["no"], t["yes"]])
+            family = st.selectbox(t["l_family"], [t["no"], t["yes"]])
 
-            # حل مشكلة الخطأ: تحويل الجلوكوز القادم من الـ OCR إلى int فوراً
-            glucose_val = int(float(st.session_state.get("home_glucose", 110)))
-            glucose = st.number_input(
-                "مستوى الجلوكوز الصائم (mg/dL)", min_value=50, max_value=400, value=glucose_val)
-
-        st.markdown("<hr style='border-color: #30363d;'>",
-                    unsafe_allow_html=True)
-
-        # الجزء الثاني: القياسات الحيوية والتاريخ الطبي
-        col3, col4 = st.columns(2)
-        with col3:
-            weight = st.number_input("الوزن (كجم)", min_value=1, max_value=300, value=int(
-                st.session_state.get("home_weight", 70)))
-            height = st.number_input("الطول (سم)", min_value=50, max_value=250, value=int(
-                st.session_state.get("home_height", 170)))
-
-        with col4:
-            hyper = st.selectbox("هل يعاني من ارتفاع ضغط الدم؟", ["No", "Yes"],
-                                 index=1 if st.session_state.get("home_hypertension") == "Yes" else 0)
-            family = st.selectbox("هل يوجد تاريخ عائلي للسكري؟", ["No", "Yes"],
-                                  index=1 if st.session_state.get("home_family_diabetes") == "Yes" else 0)
-
-        # زر الحفظ
+       
         submit_button = st.form_submit_button(
-            "💾 حفظ البيانات وتحليلها", use_container_width=True)
+            t["btn_save"], width='stretch')
 
+  
     if submit_button:
-        # حفظ كل البيانات في الـ Session State لاستخدامها في صفحة التقرير
-        st.session_state.update({
-            "home_name": name,
-            "home_age": age,
-            "home_gender": gender,
-            "home_glucose": glucose,
-            "home_weight": weight,
-            "home_height": height,
-            "home_hypertension": hyper,
-            "home_family_diabetes": family
-        })
-        st.success(f"✅ تم تحديث بيانات المريض {name} بنجاح!")
-        st.info("💡 يمكنك الآن الانتقال إلى صفحة 'التقرير الطبي' لمشاهدة تحليل النتائج.")
-# =================== PAGE 3: MEDICAL REPORT ===================
-elif page == "التقرير الطبي للمريض | Medical Report":
-    st.markdown("<h2 style='text-align: center; color: #58a6ff;'>🏥 لوحة تشخيص حالة المريض | Medical Dashboard</h2>", unsafe_allow_html=True)
-    st.write("")
+        if name.strip() == "":
+            st.error("⚠️ " + ("الرجاء إدخال الاسم" if lang_choice ==
+                     "العربية" else "Please enter name"))
+        else:
+            st.session_state.update({
+                "home_name": name,
+                "home_age": age,
+                "home_gender": gender,
+                "home_glucose": glucose,
+                "home_weight": weight,
+                "home_height": height,
+                "home_hypertension": hyper,
+                "home_family_diabetes": family,
+                "form_submitted": True  
+            })
+            st.success(f"✅ {name} - {t['success']}")
 
-    # تقسيم الصفحة لعمودين: يسار للمدخلات ويمين للنتائج لملء الفراغ
+   
+    if st.session_state.get("form_submitted"):
+        st.markdown("<br>", unsafe_allow_html=True)
+ 
+        if st.button(f"➡️ {t['report']}", width='stretch', type="primary"):
+        
+            st.session_state.nav_idx = 2
+       
+            st.rerun()
+
+# =================== PAGE 3: MEDICAL REPORT ===================
+elif page == t["report"]:
+    st.markdown(
+        f"<h2 style='text-align: center; color: #58a6ff; font-family: \"Cairo\", sans-serif;'>{t['rep_title']}</h2>", unsafe_allow_html=True)
+
     col_input, col_result = st.columns([0.8, 2], gap="large")
 
     with col_input:
-        st.markdown("#### ⚙️ التحكم والمراجعة")
+        st.markdown(f"#### ⚙️ {t['nav_title']}")
         with st.form("medical_report_form"):
-            # جلب البيانات المخزنة من صفحة الإدخال
-            name = st.session_state.get("home_name", "Unknown")
+            
+            name = st.session_state.get("home_name", "---")
             age = st.session_state.get("home_age", 0)
             glucose = st.session_state.get("home_glucose", 0)
             weight = st.session_state.get("home_weight", 0)
             height = st.session_state.get("home_height", 1)
-            gender = st.session_state.get("home_gender", "Male")
-            hypertensive = st.session_state.get("home_hypertension", "No")
+            gender = st.session_state.get("home_gender", t["gender_m"])
+            hypertensive = st.session_state.get("home_hypertension", t["no"])
             family_diabetes = st.session_state.get(
-                "home_family_diabetes", "No")
+                "home_family_diabetes", t["no"])
 
-            st.write(f"👤 **المريض:** {name}")
-            st.write(f"🩸 **الجلوكوز:** {glucose} mg/dL")
-            st.markdown("---")
+            st.write(f"👤 **{t['l_name']}:** {name}")
+            st.write(f"🩸 **{t['l_glucose']}:** {glucose} mg/dL")
 
             submit = st.form_submit_button(
-                "📊 تحديث وتحليل النتيجة", use_container_width=True)
-
-        # نصيحة جانبية لملء المساحة
-        st.markdown("""
-            <div style="background: #161b22; padding: 15px; border-radius: 12px; font-size: 0.85rem; border-left: 3px solid #3b82f6; color: #8b949e;">
-                💡 <b>نظام دعم القرار:</b> هذا التحليل يعتمد على نموذج Random Forest بدقة عالية للتنبؤ بمخاطر السكري.
-            </div>
-        """, unsafe_allow_html=True)
+                "📊 " + ("تحليل النتيجة" if lang_choice == "العربية" else "Analyze Result"), width='stretch')
 
     with col_result:
         if not submit:
-            # شكل جمالي عند فتح الصفحة لأول مرة
-            st.markdown("""
+            st.markdown(f"""
                 <div style="text-align: center; padding: 100px 20px; border: 2px dashed #30363d; border-radius: 30px; background: #0d1117;">
-                    <div style="font-size: 60px; margin-bottom: 20px;">🔍</div>
-                    <h3 style="color: #8b949e;">جاهز للتحليل العميـق</h3>
-                    <p style="color: #484f58;">الرجاء الضغط على زر "تحديث وتحليل النتيجة" لمعالجة البيانات وعرض التقرير</p>
+                    <h3 style="color: #8b949e;">{'بانتظار بدء التحليل...' if lang_choice == 'العربية' else 'Waiting for analysis...'}</h3>
                 </div>
             """, unsafe_allow_html=True)
         else:
-            # 1. الحسابات والذكاء الاصطناعي
+           
             bmi = round(weight / ((height / 100) ** 2), 2)
+            gen_val = 1 if gender in ["Male", "ذكر"] else 0
+            fam_val = 1 if family_diabetes in ["Yes", "نعم"] else 0
+            hyp_val = 1 if hypertensive in ["Yes", "نعم"] else 0
 
-            new_data = pd.DataFrame({
-                'age': [age],
-                'gender': [1 if gender == "Male" else 0],
-                'bmi': [bmi],
-                'glucose': [glucose],
-                'family_diabetes': [1 if "نعم" in family_diabetes or "Yes" in family_diabetes else 0],
-                'hypertensive': [1 if "نعم" in hypertensive or "Yes" in hypertensive else 0]
-            })
-
+            new_data = pd.DataFrame({'age': [age], 'gender': [gen_val], 'bmi': [bmi], 'glucose': [
+                                    glucose], 'family_diabetes': [fam_val], 'hypertensive': [hyp_val]})
             for col in model_columns:
                 if col not in new_data.columns:
                     new_data[col] = 0
 
-            new_data_scaled = scaler.transform(new_data[model_columns])
-            prob = model.predict_proba(new_data_scaled)[0][1]
-
-            # 2. تحديد الحالة والألوان والتوصيات (لحل مشكلة NameError)
+            prob = model.predict_proba(
+                scaler.transform(new_data[model_columns]))[0][1]
+ 
             if prob < 0.33:
-                risk_level, color, icon = "Low", "#2ecc71", "🟢"
-                advice = "✅ Keep monitoring glucose every 6 months\n✅ Maintain healthy BMI\n✅ Follow balanced diet\n✅ Exercise 30 min daily"
+                risk_txt, color, icon = t["low"], "#2ecc71", "🟢"
+                if lang_choice == "العربية":
+                    advice_list = [
+                        "• حافظ على وزن مثالي", "• فحص دوري كل 6 أشهر", "• تقليل السكريات المضافة"]
+                    weekly_plan = {"السبت-الأحد": "مشي 30 دقيقة", "الاثنين-الثلاثاء": "نظام قليل السكر",
+                                   "الأربعاء-الخميس": "تمارين مرونة", "الجمعة": "يوم راحة"}
+                else:
+                    advice_list = ["• Maintain healthy weight",
+                                   "• Checkup every 6 months", "• Reduce added sugars"]
+                    weekly_plan = {"Sat-Sun": "30 min Walking", "Mon-Tue": "Low Sugar Diet",
+                                   "Wed-Thu": "Flexibility Training", "Friday": "Rest Day"}
+
             elif prob < 0.66:
-                risk_level, color, icon = "Medium", "#f39c12", "🟡"
-                advice = "⚠️ Check blood sugar regularly\n⚠️ Reduce simple carbs\n⚠️ Increase protein & fiber\n⚠️ Moderate exercise 4-5x/week"
+                risk_txt, color, icon = t["med"], "#f39c12", "🟡"
+                if lang_choice == "العربية":
+                    advice_list = ["• قلل النشويات والخبز الأبيض",
+                                   "• ممارسة الرياضة 5 أيام أسبوعياً", "• شرب الماء بكثرة"]
+                    weekly_plan = {"السبت-الأحد": "مشي سريع 45 د", "الاثنين-الثلاثاء": "صيام متقطع 14 ساعة",
+                                   "الأربعاء-الخميس": "تمارين كارديو", "الجمعة": "فحص السكر"}
+                else:
+                    advice_list = ["• Reduce carbs & white bread",
+                                   "• Exercise 5 days/week", "• Drink plenty of water"]
+                    weekly_plan = {"Sat-Sun": "45 min Brisk Walk", "Mon-Tue": "14h Fasting",
+                                   "Wed-Thu": "Cardio Session", "Friday": "Glucose Check"}
+
             else:
-                risk_level, color, icon = "High", "#e74c3c", "🔴"
-                advice = "🚨 See your doctor immediately\n🚨 Strict diabetic diet\n🚨 Daily glucose monitoring\n🚨 Regular exercise"
+                risk_txt, color, icon = t["high"], "#e74c3c", "🔴"
+                if lang_choice == "العربية":
+                    advice_list = [
+                        "• استشر طبيباً فوراً", "• حمية غذائية صارمة (كيتو أو لو كارب)", "• فحص السكر اليومي صائم وفاطر"]
+                    weekly_plan = {"السبت-الأحد": "مشي خفيف + أدوية", "الاثنين-الثلاثاء": "حذف السكر تماماً",
+                                   "الأربعاء-الخميس": "زيارة الطبيب", "الجمعة": "فحص دم شامل"}
+                else:
+                    advice_list = ["• Consult doctor immediately",
+                                   "• Strict Low-Carb Diet", "• Daily Glucose Monitoring"]
+                    weekly_plan = {"Sat-Sun": "Light Walk + Meds", "Mon-Tue": "Zero Sugar Plan",
+                                   "Wed-Thu": "Specialist Visit", "Friday": "Full Blood Lab"}
 
-            # ------------------- العرض البصري (UI) -------------------
-
-            # كارد النتيجة الرئيسي (Gauge)
-            st.markdown(f"""
-                <div style="background: {color}15; border: 1px solid {color}; padding: 30px; border-radius: 20px; text-align: center; margin-bottom: 25px;">
-                    <h4 style="margin: 0; color: {color}; text-transform: uppercase; letter-spacing: 2px;">{icon} Risk Level: {risk_level}</h4>
-                    <div style="width: 140px; height: 140px; border-radius: 50%; border: 8px solid {color}; display: flex; align-items: center; justify-content: center; margin: 20px auto; font-size: 28px; font-weight: bold; color: white; box-shadow: 0 0 15px {color}44;">
-                        {prob*100:.1f}%
-                    </div>
-                    <p style="color: #8b949e; margin: 0;">احتمالية الإصابة بناءً على التحليل الرقمي</p>
-                </div>
-            """, unsafe_allow_html=True)
-
-            # كروت البيانات الحيوية
-            m1, m2, m3 = st.columns(3)
-            with m1:
+          
+            c1, c2 = st.columns(2)
+            with c1:
                 st.markdown(
-                    f'<div class="metric-box-v2"><h5>BMI</h5><h2 style="color:#58a6ff;">{bmi}</h2><small>مؤشر الكتلة</small></div>', unsafe_allow_html=True)
-            with m2:
+                    f'<div class="metric-box" style="border-top: 4px solid {color};"><h4>{t["risk_level"]}</h4><h2 style="color:{color}">{icon} {risk_txt}</h2></div>', unsafe_allow_html=True)
+            with c2:
                 st.markdown(
-                    f'<div class="metric-box-v2"><h5>Glucose</h5><h2 style="color:#58a6ff;">{glucose}</h2><small>mg/dL</small></div>', unsafe_allow_html=True)
-            with m3:
-                st.markdown(
-                    f'<div class="metric-box-v2"><h5>Age</h5><h2 style="color:#58a6ff;">{age}</h2><small>سنة</small></div>', unsafe_allow_html=True)
+                    f'<div class="metric-box"><h4>{t["prob"]}</h4><h2>{prob*100:.1f}%</h2></div>', unsafe_allow_html=True)
 
-            # التوصيات الطبية
-            st.markdown("### 📋 التوصيات الطبية المخصصة")
-            advice_html = "".join(
-                [f"<div style='margin-bottom:10px; font-size: 1.05rem;'>• {line}</div>" for line in advice.split('\n')])
-            st.markdown(f"""
-                <div style="background: #161b22; padding: 25px; border-radius: 15px; border-right: 5px solid {color}; color: #e6edf3; line-height: 1.6;">
-                    {advice_html}
-                </div>
-            """, unsafe_allow_html=True)
+       
+            st.markdown(
+                f"### 📅 {'الخطة الأسبوعية المقترحة' if lang_choice == 'العربية' else 'Weekly Plan'}")
+            st.table(pd.DataFrame(weekly_plan.items(), columns=[
+                     "Day" if lang_choice == "English" else "اليوم", "Plan" if lang_choice == "English" else "الخطة"]))
+ 
+            st.markdown(f"### {t['advice_title']}")
+            for item in advice_list:
+                st.write(item)
+ 
+            pdf_data = {
+                "Name": name, "Age": age, "Gender": gender, "BMI": bmi,
+                "Glucose": glucose, "Risk Level": f"{risk_txt} ({prob*100:.1f}%)",
+                "Advice": advice_list  
+            }
 
-            # زر التحميل
-            st.write("---")
-            patient_info = {"Name": name, "Age": age, "Gender": gender, "Weight": weight,
-                            "Height": height, "BMI": bmi, "Glucose": glucose, "Risk Level": risk_level, "Advice": advice}
-            pdf_bytes = generate_pdf(patient_info)
-            st.download_button(label="📥 تحميل التقرير الطبي الكامل (PDF)", data=pdf_bytes,
-                               file_name=f"Report_{name}.pdf", mime="application/pdf", use_container_width=True)
-# =================== BATCH ANALYSIS ===================
-elif page == "التحليل الجماعي | Batch Analysis":
-    st.markdown("<h2 style='text-align: center;'>📊 التحليل الجماعي والبيانات الضخمة</h2>",
-                unsafe_allow_html=True)
+            pdf_bytes = generate_pdf(pdf_data, weekly_plan)
+            st.download_button(t["btn_pdf"], pdf_bytes,
+                               f"Report_{name}.pdf", width='stretch')
+# =================== PAGE: BATCH ANALYSIS ===================
+elif page == t["batch"]:
+    title_text = "📊 التحليل الجماعي والبيانات الضخمة" if lang_choice == "العربية" else "📊 Batch Analysis & Big Data"
+    st.markdown(
+        f"<h2 style='text-align: center;'>{title_text}</h2>", unsafe_allow_html=True)
 
-    # منطقة رفع الملفات بتصميم جذاب
-    st.markdown("""
+    upload_msg = (
+        "يرجى رفع ملف Excel أو CSV يحتوي على بيانات المرضى (name, age, height, weight, glucose, gender, family_diabetes, hypertensive)"
+        if lang_choice == "العربية" else
+        "Please upload an Excel or CSV file containing patient data (name, age, height, weight, glucose, gender, family_diabetes, hypertensive)"
+    )
+
+    st.markdown(f"""
         <div style="background: #161b22; padding: 20px; border-radius: 15px; border: 1px dashed #3b82f6; text-align: center; margin-bottom: 25px;">
-            <p style="margin-bottom: 10px; color: #8b949e;">يرجى رفع ملف Excel أو CSV يحتوي على بيانات المرضى (الاسم، العمر، الطول، الوزن، الجلوكوز...)</p>
+            <p style="margin-bottom: 10px; color: #8b949e;">{upload_msg}</p>
         </div>
     """, unsafe_allow_html=True)
 
     uploaded_file = st.file_uploader("", type=["csv", "xlsx"])
 
     if uploaded_file:
+        
         df = pd.read_csv(uploaded_file) if uploaded_file.name.endswith(
             ".csv") else pd.read_excel(uploaded_file)
-        st.success(f"✅ تم تحميل الملف بنجاح! يحتوي على {len(df)} مريض.")
+
+        success_msg = f"✅ تم تحميل الملف بنجاح! يحتوي على {len(df)} مريض." if lang_choice == "العربية" else f"✅ File uploaded! Contains {len(df)} patients."
+        st.success(success_msg)
 
         results = []
-        # معالجة البيانات
+        
         for _, row in df.iterrows():
+            
             bmi = round(row['weight'] / ((row['height'] / 100) ** 2), 2)
+
             new_data = pd.DataFrame({
-                'age': [row['age']], 'gender': [1 if str(row['gender']).lower() == "male" else 0],
-                'bmi': [bmi], 'glucose': [row['glucose']],
-                'family_diabetes': [1 if "Yes" in str(row['family_diabetes']) else 0],
-                'hypertensive': [1 if "Yes" in str(row['hypertensive']) else 0]
+                'age': [row['age']],
+                'gender': [1 if str(row['gender']).lower() in ["male", "ذكر"] else 0],
+                'bmi': [bmi],
+                'glucose': [row['glucose']],
+                'family_diabetes': [1 if str(row['family_diabetes']).lower() in ["yes", "نعم"] else 0],
+                'hypertensive': [1 if str(row['hypertensive']).lower() in ["yes", "نعم"] else 0]
             })
 
             for col in model_columns:
                 if col not in new_data.columns:
                     new_data[col] = 0
 
-            # التنبؤ بالاحتمالية وليس فقط التصنيف
             prob = model.predict_proba(
                 scaler.transform(new_data[model_columns]))[0][1]
-            risk = "High" if prob > 0.66 else "Medium" if prob > 0.33 else "Low"
+
+           
+            if prob > 0.66:
+                risk_status = "High" if lang_choice == "English" else "عالية"
+                status_key = "High" 
+            elif prob > 0.33:
+                risk_status = "Medium" if lang_choice == "English" else "متوسطة"
+                status_key = "Medium"
+            else:
+                risk_status = "Low" if lang_choice == "English" else "منخفضة"
+                status_key = "Low"
 
             results.append({
-                "Patient Name": row['name'],
-                "Glucose": row['glucose'],
+                "Name" if lang_choice == "English" else "اسم المريض": row['name'],
+                "Glucose" if lang_choice == "English" else "الجلوكوز": row['glucose'],
                 "BMI": bmi,
-                "Risk Probability": f"{prob*100:.1f}%",
-                "Status": risk
+                "Probability" if lang_choice == "English" else "الاحتمالية": f"{prob*100:.1f}%",
+                "Status" if lang_choice == "English" else "الحالة": risk_status,
+                "Internal_Status": status_key   
             })
 
         results_df = pd.DataFrame(results)
 
-        # --- 🟢 قسم الإحصائيات العلوية ---
-        st.markdown("### 📈 ملخص الدفعة | Batch Summary")
+        st.markdown(
+            f"### 📈 {'ملخص الدفعة' if lang_choice == 'العربية' else 'Batch Summary'}")
         k1, k2, k3, k4 = st.columns(4)
 
         total_patients = len(results_df)
-        high_risk_count = len(results_df[results_df['Status'] == "High"])
-        avg_glucose = round(results_df['Glucose'].mean(), 1)
+        
+        high_risk_count = len(
+            results_df[results_df['Internal_Status'] == "High"])
+        avg_glucose = round(
+            results_df["Glucose" if lang_choice == "English" else "الجلوكوز"].mean(), 1)
+
+        labels = {
+            "total": "إجمالي المرضى" if lang_choice == "العربية" else "Total Patients",
+            "high": "مخاطر عالية" if lang_choice == "العربية" else "High Risk",
+            "avg": "متوسط الجلوكوز" if lang_choice == "العربية" else "Avg Glucose",
+            "ratio": "نسبة الخطورة" if lang_choice == "العربية" else "Risk Ratio"
+        }
 
         k1.markdown(
-            f'<div class="metric-box-v2"><h5>إجمالي المرضى</h5><h2 style="color:#58a6ff;">{total_patients}</h2></div>', unsafe_allow_html=True)
+            f'<div class="metric-box-v2"><h5>{labels["total"]}</h5><h2 style="color:#58a6ff;">{total_patients}</h2></div>', unsafe_allow_html=True)
         k2.markdown(
-            f'<div class="metric-box-v2"><h5>مخاطر عالية</h5><h2 style="color:#e74c3c;">{high_risk_count}</h2></div>', unsafe_allow_html=True)
+            f'<div class="metric-box-v2"><h5>{labels["high"]}</h5><h2 style="color:#e74c3c;">{high_risk_count}</h2></div>', unsafe_allow_html=True)
         k3.markdown(
-            f'<div class="metric-box-v2"><h5>متوسط الجلوكوز</h5><h2 style="color:#f39c12;">{avg_glucose}</h2></div>', unsafe_allow_html=True)
+            f'<div class="metric-box-v2"><h5>{labels["avg"]}</h5><h2 style="color:#f39c12;">{avg_glucose}</h2></div>', unsafe_allow_html=True)
         k4.markdown(
-            f'<div class="metric-box-v2"><h5>نسبة الخطورة</h5><h2 style="color:#2ecc71;">{round((high_risk_count/total_patients)*100)}%</h2></div>', unsafe_allow_html=True)
+            f'<div class="metric-box-v2"><h5>{labels["ratio"]}</h5><h2 style="color:#2ecc71;">{round((high_risk_count/total_patients)*100)}%</h2></div>', unsafe_allow_html=True)
 
         st.write("---")
 
-        # --- 🔵 عرض الجدول والمخطط جنباً إلى جنب ---
+ 
         col_tab, col_chart = st.columns([1.5, 1])
 
         with col_tab:
-            st.markdown("#### 📋 تفاصيل المرضى")
-            # تلوين الجدول بناءً على الحالة
+            st.markdown(
+                f"#### 📋 {'تفاصيل المرضى' if lang_choice == 'العربية' else 'Patient Details'}")
 
             def color_risk(val):
-                color = '#e74c3c' if val == "High" else '#f39c12' if val == "Medium" else '#2ecc71'
+                
+                if val in ["High", "عالية"]:
+                    color = '#e74c3c'
+                elif val in ["Medium", "متوسطة"]:
+                    color = '#f39c12'
+                else:
+                    color = '#2ecc71'
                 return f'color: {color}; font-weight: bold'
 
-            st.dataframe(results_df.style.applymap(
-                color_risk, subset=['Status']), use_container_width=True)
+            
+            display_df = results_df.drop(columns=['Internal_Status'])
+            st.dataframe(display_df.style.applymap(color_risk, subset=[
+                         display_df.columns[-1]]), width='stretch')
 
         with col_chart:
-            st.markdown("#### 📊 توزيع المخاطر")
-            status_counts = results_df['Status'].value_counts()
+            st.markdown(
+                f"#### 📊 {'توزيع المخاطر' if lang_choice == 'العربية' else 'Risk Distribution'}")
+            status_counts = results_df['Internal_Status'].value_counts()
 
-            # تحسين المخطط البياني
             fig, ax = plt.subplots(figsize=(5, 5))
-            fig.patch.set_facecolor('#0d1117')  # لون خلفية الداشبورد
+            fig.patch.set_facecolor('#0d1117')
             ax.set_facecolor('#0d1117')
 
             colors_map = {'High': '#e74c3c',
@@ -586,118 +693,210 @@ elif page == "التحليل الجماعي | Batch Analysis":
             ax.set_ylabel('')
             st.pyplot(fig)
 
-        # --- 🟡 خيار تحميل النتائج ---
+     
         st.write("---")
         csv_results = results_df.to_csv(index=False).encode('utf-8-sig')
-        st.download_button(
-            label="📥 تحميل نتائج التحليل بالكامل (CSV)",
-            data=csv_results,
-            file_name="Batch_Analysis_Results.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+        btn_label = "📥 تحميل نتائج التحليل بالكامل (CSV)" if lang_choice == "العربية" else "📥 Download All Results (CSV)"
+        st.download_button(label=btn_label, data=csv_results,
+                           file_name="Batch_Analysis.csv", mime="text/csv", width='stretch')
+ # =================== PAGE: MEDICAL IMAGE ANALYSIS (COMPLETE & CLEAN) ===================
+elif page == t["image"]:
+    if "home_glucose" not in st.session_state:
+        st.session_state["home_glucose"] = 100.0
 
-# =================== MEDICAL IMAGE ANALYSIS ===================
-elif page == "تحليل صورة الفحص الطبي | Medical Image Analysis":
-    # 1. العنوان والوصف بتصميم جذاب
-    st.markdown("""
+    title_text = "🧪 المختبر الذكي | AI Image Lab" if lang_choice == "العربية" else "🧪 Smart Lab | AI Image Lab"
+    subtitle_text = (
+        "تحليل صور الفحوصات الطبية واستخراج النتائج فوراً"
+        if lang_choice == "العربية" else
+        "Extract medical test results from images instantly"
+    )
+
+    st.markdown(f"""
         <div style="text-align: center; margin-bottom: 30px;">
-            <h1 style="color: #58a6ff; font-family: 'Cairo', sans-serif;">🧪 المختبر الذكي | AI Image Lab</h1>
-            <p style="color: #8b949e; font-size: 1.1rem;">استخدم الذكاء الاصطناعي لاستخراج نتائج التحاليل من الصور بدقة وسرعة</p>
+            <h1 style="color: #58a6ff; font-family: 'Cairo', sans-serif;">{title_text}</h1>
+            <p style="color: #8b949e; font-size: 1.1rem;">{subtitle_text}</p>
         </div>
     """, unsafe_allow_html=True)
-
-    # 2. منطقة رفع الملف بتصميم مخصص
-    st.markdown('<p style="text-align: right; color: #58a6ff;">⬇️ ارفع صورة الفحص الطبية هنا (JPG, PNG, JPEG)</p>', unsafe_allow_html=True)
-    uploaded_file = st.file_uploader("", type=["png", "jpg", "jpeg"])
+ 
+    upload_msg = "⬇️ ارفع صورة الفحص الطبية هنا (JPG, PNG, JPEG)" if lang_choice == "العربية" else "⬇️ Upload lab report image (JPG, PNG, JPEG)"
+    st.markdown(
+        f'<p style="text-align: {"right" if lang_choice == "العربية" else "left"}; color: #58a6ff;">{upload_msg}</p>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader(
+        "", type=["png", "jpg", "jpeg"], label_visibility="collapsed")
 
     if uploaded_file:
-        # تقسيم الصفحة لعمودين (الصورة على اليسار والنتائج على اليمين)
-        col_img, col_res = st.columns([1, 1], gap="large")
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_img, spacer, col_res = st.columns([1, 0.1, 1])
 
         with col_img:
-            # عرض الصورة المرفوعة داخل إطار أنيق
-            image = Image.open(uploaded_file)
             st.markdown(
-                '<div style="border: 2px solid #30363d; border-radius: 15px; padding: 10px; background: #0d1117;">', unsafe_allow_html=True)
-            st.image(image, caption="الصورة الأصلية للمختبر",
-                     use_container_width=True)
+                f"### 🖼️ {'الصورة المرفوعة' if lang_choice == 'العربية' else 'Uploaded Scan'}")
+            image = Image.open(uploaded_file)
+            st.markdown('<div style="border: 2px solid #30363d; border-radius: 15px; padding: 10px; background: #0d1117; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">', unsafe_allow_html=True)
+            st.image(image, width='stretch')
             st.markdown('</div>', unsafe_allow_html=True)
 
         with col_res:
-            # حاوية النتائج والتحليل
-            with st.status("🔍 جاري فحص الصورة واستخراج النصوص...", expanded=True) as status:
-                # حفظ مؤقت للصورة للقيام بعملية الـ OCR
+            st.markdown(
+                f"### 📋 {'نتائج التحليل' if lang_choice == 'العربية' else 'Analysis Result'}")
+
+            with st.status("🔍 Scanning..." if lang_choice == "English" else "🔍 جاري الفحص...", expanded=True) as status:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                     image.save(tmp.name)
                     img_path = tmp.name
 
-                # إجراء المسح الضوئي (باستخدام التخزين المؤقت المسبق للسرعة)
                 results = reader.readtext(img_path)
                 full_text = " ".join([r[1] for r in results])
 
-                # البحث عن قيمة الجلوكوز بأنماط Regex متطورة
                 glucose = None
-                glucose_patterns = [
-                    r'Glucose[:\s]*([0-9]{2,3})',
-                    r'([0-9]{2,3})\s*mg\s*/?\s*dL',
-                    r'سكر[:\s]*([0-9]{2,3})',
-                    r'Result[:\s]*([0-9]{2,3})',
-                    r'([0-9]{2,3})\s*Milligrams'
-                ]
-                for p in glucose_patterns:
+                patterns = [
+                    r'Glucose[:\s]*([0-9]{2,3})', r'([0-9]{2,3})\s*mg', r'سكر[:\s]*([0-9]{2,3})']
+                for p in patterns:
                     match = re.search(p, full_text, re.IGNORECASE)
                     if match:
-                        value = int(match.group(1))
-                        if 50 <= value <= 500:  # نطاق منطقي للتحقق
-                            glucose = float(value)
-                            break
+                        glucose = float(match.group(1))
+                        break
 
-                status.update(label="✅ اكتمل استخراج البيانات بنجاح!",
-                              state="complete", expanded=False)
+                status.update(label="✅ Success!" if lang_choice ==
+                              "English" else "✅ تم استخراج البيانات", state="complete")
 
-            # --- عرض النتائج النهائية ---
-            if glucose is None:
-                st.error("❌ عذراً، لم نتمكن من تحديد قيمة الجلوكوز في هذه الصورة.")
-                st.warning(
-                    "💡 نصيحة: تأكد من أن الصورة واضحة، ليست مهتزة، وأن الإضاءة جيدة حول رقم النتيجة.")
-            else:
-                # كرت عرض القيمة الرقمية المكتشفة
+            if glucose:
+                 
+                label_glucose = "مستوى الجلوكوز" if lang_choice == "العربية" else "Glucose Level"
                 st.markdown(f"""
-                    <div style="background: #1c2128; padding: 30px; border-radius: 20px; border-top: 6px solid #3b82f6; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
-                        <p style="color: #8b949e; font-size: 1rem; margin-bottom: 5px;">القيمة المكتشفة (الجلوكوز)</p>
+                    <div style="background: #161b22; padding: 25px; border-radius: 20px; border-top: 5px solid #3b82f6; text-align: center; margin-bottom: 20px;">
+                        <p style="color: #8b949e; font-size: 0.9rem; margin-bottom: 5px;">{label_glucose}</p>
                         <h1 style="color: #ffffff; font-size: 4.5rem; margin: 0; font-family: 'Courier New';">{int(glucose)}</h1>
                         <p style="color: #3b82f6; font-size: 1.2rem; font-weight: bold;">mg/dL</p>
                     </div>
                 """, unsafe_allow_html=True)
 
-                st.markdown("<br>", unsafe_allow_html=True)
-
-                # تشخيص سريع بناءً على الرقم المستخرج
                 if glucose < 70:
-                    status_msg = "⚠️ انخفاض في السكر"
-                    status_color = "#f1c40f"  # أصفر
-                    advice = "يُنصح بتناول مصدر سريع للسكر (عصير أو حبة تمر) وإعادة الفحص."
+                    status_msg, status_color, icon = (
+                        "Low" if lang_choice == "English" else "منخفض", "#f1c40f", "⚠️")
+                    advice = "Need sugar source." if lang_choice == "English" else "تحتاج لمصدر سكر سريع."
                 elif 70 <= glucose <= 140:
-                    status_msg = "✅ مستوى طبيعي"
-                    status_color = "#2ecc71"  # أخضر
-                    advice = "النتيجة ضمن النطاق الطبيعي للصيام أو بعد الأكل بفترة وجيزة."
+                    status_msg, status_color, icon = (
+                        "Normal" if lang_choice == "English" else "طبيعي", "#2ecc71", "✅")
+                    advice = "Healthy range." if lang_choice == "English" else "ضمن النطاق الصحي."
                 else:
-                    status_msg = "🚨 مستوى مرتفع"
-                    status_color = "#e74c3c"  # أحمر
-                    advice = "هذه القيمة تشير لارتفاع السكر. يرجى مراجعة الطبيب لعمل فحص HbA1c."
+                    status_msg, status_color, icon = (
+                        "High" if lang_choice == "English" else "مرتفع", "#e74c3c", "🚨")
+                    advice = "Consult a doctor." if lang_choice == "English" else "يرجى استشارة طبيب."
 
-                # عرض التشخيص
                 st.markdown(f"""
-                    <div style="background: {status_color}20; border-right: 5px solid {status_color}; padding: 15px; border-radius: 10px;">
-                        <h4 style="color: {status_color}; margin: 0;">{status_msg}</h4>
-                        <p style="color: white; font-size: 0.9rem; margin-top: 5px;">{advice}</p>
+                    <div style="display: flex; align-items: center; background: {status_color}15; padding: 15px; border-radius: 12px; border: 1px solid {status_color}40;">
+                        <div style="font-size: 2rem; margin-right: 15px; margin-left: {'0' if lang_choice == 'English' else '15px'};">{icon}</div>
+                        <div style="flex-grow: 1; text-align: {'left' if lang_choice == 'English' else 'right'};">
+                            <h4 style="color: {status_color}; margin: 0; font-size: 1.2rem;">{status_msg}</h4>
+                            <p style="color: white; font-size: 0.85rem; margin-top: 3px;">{advice}</p>
+                        </div>
                     </div>
                 """, unsafe_allow_html=True)
 
-                # ميزة الربط بين الصفحات (نقل القيمة تلقائياً)
-                st.write("---")
-                if st.button("📝 استخدام هذه القيمة في التقييم الرئيسي", use_container_width=True):
-                    st.session_state.home_glucose = glucose
-                    st.balloons()
-                    st.toast("تم تحديث قيمة الجلوكوز في صفحة التقييم!")
+                st.markdown("<br>", unsafe_allow_html=True)
+
+        
+                btn_sync = "🚀 مزامنة مع التقييم الطبي" if lang_choice == "العربية" else "🚀 Sync to Medical Assessment"
+                if st.button(btn_sync,width='stretch', type="primary"):
+                                    
+                    st.session_state["home_glucose"] = glucose
+                    st.session_state["risk_glucose_master"] = float(glucose)
+                    st.session_state["page"] = t["risk"]
+
+                    st.rerun()
+            else:
+                st.error("❌ Could not read glucose. | لم نتمكن من قراءة القيمة.")
+         
+    with st.expander("ℹ️ " + ("كيفية الاستخدام" if lang_choice == "العربية" else "How to Use")):
+        if lang_choice == "العربية":
+            st.write("1. ارفع صورة واضحة لتقرير المختبر.")
+            st.write("2. سيقوم النظام بقراءة النصوص آلياً.")
+            st.write("3. اضغط على 'مزامنة' لنقل القيم تلقائياً.")
+        else:
+            st.write("1. Upload a clear lab report image.")
+            st.write("2. The system scans text automatically.")
+            st.write("3. Click 'Sync' to transfer data instantly.")
+
+
+# =================== PAGE: AI MEDICAL CONSULTANT ===================
+elif "المساعد الطبي الذكي" in page or "AI Medical Assistant" in page:
+    display_title = t.get('ai_title', 'DiaVision AI Consultant')
+    display_subtitle = 'مساعدك الطبي الذكي - اسأل بأي لغة' if lang_choice == 'العربية' else 'Your AI Medical Assistant - Ask in any language'
+
+    st.markdown(f"""
+        <div style="text-align: center; margin-bottom: 30px; padding: 20px; background: rgba(88, 166, 255, 0.1); border-radius: 20px; border: 1px solid #58a6ff33;">
+            <h1 style="color: #58a6ff; font-family: 'Cairo', sans-serif;">🩺 {display_title}</h1>
+            <p style="color: #8b949e; font-size: 1.1rem;">{display_subtitle}</p>
+        </div>
+    """, unsafe_allow_html=True)
+ 
+    if "medical_chat_history" not in st.session_state:
+        st.session_state.medical_chat_history = []
+
+    for message in st.session_state.medical_chat_history:
+        avatar_icon = "👤" if message["role"] == "user" else "🩺"
+        with st.chat_message(message["role"], avatar=avatar_icon):
+            st.markdown(message["content"])
+
+    chat_placeholder = "اسأل عن الأعراض، الأدوية، أو التحاليل..." if lang_choice == "العربية" else "Ask about symptoms, meds, or labs..."
+    user_input = st.chat_input(chat_placeholder)
+
+    if user_input:
+        st.session_state.medical_chat_history.append(
+            {"role": "user", "content": user_input})
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(user_input)
+
+        with st.chat_message("assistant", avatar="🩺"):
+            with st.spinner("🔍 جاري التحليل..." if lang_choice == "العربية" else "🔍 Analyzing..."):
+                 
+                glucose_val = st.session_state.get('home_glucose', None)
+                if glucose_val:
+                    context_text = f"The user's blood glucose level is {glucose_val} mg/dL. Analyze this specific value."
+                else:
+                    context_text = "No glucose value is available yet. Do not mention any numbers, just ask the user if they want to upload a lab report or ask a general question."
+                instruction = """
+                        You are "DiaVision AI", a professional medical consultant specializing in Diabetes but knowledgeable in general medicine. 
+
+                        CORE CAPABILITIES:
+                        1. AUTO-ANALYSIS: Analyze blood sugar values immediately when detected in context or chat.
+                        2. CONVERSATIONAL MEMORY: Remember previous readings and questions to avoid repetition.
+                        3. MEDICAL SCOPE: You can discuss any MEDICAL or HEALTH topics (like heart disease, blood pressure, general symptoms). 
+                        4. STRICT NON-MEDICAL GUARDRAILS: Politely decline ONLY non-medical questions (like sports, politics, or universities).
+                        5. DYNAMIC LANGUAGE: Respond in the same language the user uses.
+
+                        TONE: Professional and supportive.
+                        DISCLAIMER: Always mention that this is for informational purposes and they must see a doctor.
+                        """
+
+                try:
+                  
+                    history_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.medical_chat_history[-5:]])
+                    full_prompt = f"""
+                    {instruction}
+                    
+                    CONTEXT: {context_text}
+                    
+                    CHAT HISTORY:
+                    {history_text}
+                    
+                    NEW USER QUESTION: {user_input}
+                    """
+                    response = ai_model.generate_content(full_prompt)
+                    if response and response.text:
+                        ai_reply = response.text
+                        st.markdown(ai_reply)
+                    
+                        st.session_state.medical_chat_history.append(
+                            {"role": "assistant", "content": ai_reply})
+                    else:
+                        st.error("⚠️ لم يتمكن الذكاء الاصطناعي من توليد رد.")
+
+                except Exception as e:
+                    st.error(f"⚠️ خطأ في الاتصال: {str(e)}")
+
+    if st.sidebar.button("🗑️ " + ("مسح المحادثة" if lang_choice == "العربية" else "Clear Chat")):
+        st.session_state.medical_chat_history = []
+        st.rerun()
+
